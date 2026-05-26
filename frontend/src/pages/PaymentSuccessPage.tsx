@@ -1,22 +1,22 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowRight, Check, Loader2, Sparkles } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { Check, Loader2, Sparkles } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 
-/**
- * Post-checkout landing page.
- * Lemonsqueezy redirects here after a successful purchase.
- * This page:
- *   1. Polls the backend until the user's plan is updated (webhook may arrive with a short delay)
- *   2. Shows a success animation
- *   3. Auto-redirects to the dashboard
- */
 export default function PaymentSuccessPage() {
     const { user, plan, refreshProfile } = useAuth();
     const navigate = useNavigate();
-    const [synced, setSynced] = useState(false);
+    const [searchParams] = useSearchParams();
+    const purchasedPlan = searchParams.get('plan') || 'selected';
     const [pollCount, setPollCount] = useState(0);
-    const MAX_POLLS = 12; // 12 × 2.5s = 30s max wait
+    const MAX_POLLS = 12;
+    const synced = Boolean(plan && plan !== 'free');
+    const timedOut = !synced && pollCount >= MAX_POLLS;
 
     useEffect(() => {
         if (!user) {
@@ -28,106 +28,93 @@ export default function PaymentSuccessPage() {
 
         const pollPlan = async () => {
             if (cancelled) return;
-
             await refreshProfile();
-            setPollCount((c) => c + 1);
+            setPollCount((count) => count + 1);
         };
 
-        // Start polling every 2.5 seconds
         const interval = setInterval(() => {
-            if (cancelled) return;
-            pollPlan();
+            void pollPlan();
         }, 2500);
 
-        // Initial immediate check
-        pollPlan();
+        void pollPlan();
 
         return () => {
             cancelled = true;
             clearInterval(interval);
         };
-    }, [user]);
+    }, [navigate, refreshProfile, user]);
 
-    // Watch for plan change → mark as synced
     useEffect(() => {
-        if (plan && plan !== 'free') {
-            setSynced(true);
-        }
-        // If we've polled enough times, consider it synced anyway (webhook might be delayed)
-        if (pollCount >= MAX_POLLS) {
-            setSynced(true);
-        }
-    }, [plan, pollCount]);
-
-    // Auto-redirect to dashboard after sync
-    useEffect(() => {
-        if (synced) {
-            const timeout = setTimeout(() => navigate('/dashboard'), 3000);
-            return () => clearTimeout(timeout);
-        }
-    }, [synced, navigate]);
+        if (!synced) return;
+        const timeout = setTimeout(() => navigate('/dashboard'), 3000);
+        return () => clearTimeout(timeout);
+    }, [navigate, synced]);
 
     return (
-        <div className="min-h-screen bg-[var(--color-surface)] flex items-center justify-center p-4">
-            <div className="max-w-md w-full text-center">
-                {/* Success icon */}
-                <div className="relative inline-flex mb-8">
-                    <div className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-700 ${synced
-                        ? 'bg-[var(--color-success)]/10 ring-4 ring-[var(--color-success)]/20'
-                        : 'bg-[var(--color-primary-light)] ring-4 ring-[var(--color-primary)]/10'
-                        }`}>
-                        {synced ? (
-                            <Check className="w-10 h-10 text-[var(--color-success)] animate-[scale-in_0.3s_ease-out]" />
-                        ) : (
-                            <Loader2 className="w-10 h-10 text-[var(--color-primary)] animate-spin" />
+        <main className="flex min-h-screen items-center justify-center bg-background p-4 text-foreground">
+            <Card className="w-full max-w-md overflow-hidden text-center">
+                <CardHeader className="items-center gap-4 pb-4">
+                    <div className="relative">
+                        <div
+                            className={`flex h-20 w-20 items-center justify-center rounded-full ring-4 transition-all duration-700 ${
+                                synced ? 'bg-emerald-500/10 ring-emerald-500/20' : 'bg-primary/10 ring-primary/10'
+                            }`}
+                        >
+                            {synced ? (
+                                <Check className="h-10 w-10 text-emerald-600" />
+                            ) : (
+                                <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                            )}
+                        </div>
+                        {synced && (
+                            <Sparkles className="absolute -right-1 -top-1 h-6 w-6 animate-bounce text-amber-500" />
                         )}
                     </div>
-                    {synced && (
-                        <Sparkles className="w-6 h-6 text-[var(--color-warning)] absolute -top-1 -right-1 animate-bounce" />
+
+                    <div>
+                        <Badge variant={synced ? 'success' : timedOut ? 'warning' : 'secondary'} className="mb-3">
+                            {synced ? 'Plan active' : timedOut ? 'Activation pending' : 'Confirming checkout'}
+                        </Badge>
+                        <CardTitle className="text-2xl">
+                            {synced ? 'Payment successful' : timedOut ? 'Payment received' : 'Processing payment'}
+                        </CardTitle>
+                        <CardDescription className="mt-2 text-sm leading-6">
+                            {synced
+                                ? 'Your plan is active. You will be redirected to the dashboard in a moment.'
+                                : timedOut
+                                    ? `Checkout completed for the ${purchasedPlan} plan, but account activation is still syncing.`
+                                    : 'Confirming your subscription with the billing provider. This usually takes a few seconds.'}
+                        </CardDescription>
+                    </div>
+                </CardHeader>
+
+                <CardContent className="space-y-5">
+                    {synced && plan !== 'free' && (
+                        <Badge variant="success" className="capitalize">
+                            <Check className="mr-1 h-3.5 w-3.5" />
+                            {plan} plan activated
+                        </Badge>
                     )}
-                </div>
 
-                {/* Title */}
-                <h1 className="text-3xl font-serif text-[var(--color-gray-900)] mb-3">
-                    {synced ? 'Payment Successful!' : 'Processing Payment...'}
-                </h1>
+                    {!synced && !timedOut && (
+                        <Progress value={Math.min(95, (pollCount / MAX_POLLS) * 100)} className="mx-auto max-w-56" />
+                    )}
 
-                {/* Description */}
-                <p className="text-[var(--color-gray-500)] mb-6 text-lg">
-                    {synced
-                        ? <>Your <span className="font-semibold text-[var(--color-gray-900)] capitalize">{plan}</span> plan is now active. Redirecting to your dashboard...</>
-                        : 'Confirming your subscription. This usually takes just a few seconds.'
-                    }
-                </p>
+                    {timedOut && (
+                        <Alert variant="warning" className="text-left">
+                            <AlertTitle>Activation is still syncing</AlertTitle>
+                            <AlertDescription>
+                                Keep this tab open or go back to Billing and refresh after payment confirmation completes.
+                            </AlertDescription>
+                        </Alert>
+                    )}
 
-                {/* Plan badge */}
-                {synced && plan !== 'free' && (
-                    <div className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[var(--color-success)]/10 border border-[var(--color-success)]/20 mb-8">
-                        <Check className="w-4 h-4 text-[var(--color-success)]" />
-                        <span className="text-sm font-semibold text-[var(--color-success)] capitalize">{plan} Plan Activated</span>
-                    </div>
-                )}
-
-                {/* Progress bar */}
-                {!synced && (
-                    <div className="w-48 h-1.5 bg-[var(--color-gray-100)] rounded-full mx-auto overflow-hidden">
-                        <div
-                            className="h-full bg-[var(--color-primary)] rounded-full transition-all duration-500 ease-out"
-                            style={{ width: `${Math.min(95, (pollCount / MAX_POLLS) * 100)}%` }}
-                        />
-                    </div>
-                )}
-
-                {/* Manual redirect link */}
-                <div className="mt-8">
-                    <button
-                        onClick={() => navigate('/dashboard')}
-                        className="text-sm text-[var(--color-primary)] hover:text-[var(--color-primary-dark)] font-medium underline underline-offset-2 transition-colors"
-                    >
-                        Go to Dashboard now →
-                    </button>
-                </div>
-            </div>
-        </div>
+                    <Button onClick={() => navigate('/dashboard')} className="w-full">
+                        Go to dashboard
+                        <ArrowRight className="h-4 w-4" />
+                    </Button>
+                </CardContent>
+            </Card>
+        </main>
     );
 }

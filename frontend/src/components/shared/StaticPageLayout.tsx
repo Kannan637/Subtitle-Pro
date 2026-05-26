@@ -1,27 +1,31 @@
 import { Link, useLocation } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ShieldCheck, Sparkles } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import BrandLogo from '@/components/shared/BrandLogo';
+import { Button } from '@/components/ui/button';
+import type { MouseEvent, ReactNode } from 'react';
 
 const FOOTER_LINKS = {
     Product: [
-        { label: 'Features', href: '/#features' },
-        { label: 'Pricing', href: '/#pricing' },
-        { label: 'Changelog', href: '/changelog' },
+        { label: 'Tools', href: '/#tools' },
+        { label: 'Workflow', href: '/#workflow' },
+        { label: 'Studio', href: '/#studio' },
+        { label: 'Shorts', href: '/#shorts' },
     ],
     Resources: [
         { label: 'Documentation', href: '/docs' },
-        { label: 'API Reference', href: '/api-reference' },
+        { label: 'Changelog', href: '/changelog' },
         { label: 'Status', href: '/status' },
     ],
-    Company: [
-        { label: 'About', href: '/about' },
+    Legal: [
         { label: 'Privacy', href: '/privacy' },
         { label: 'Terms', href: '/terms' },
+        { label: 'Security', href: '/status' },
     ],
 };
 
 interface StaticPageLayoutProps {
-    children: React.ReactNode;
+    children: ReactNode;
     title: string;
     subtitle?: string;
     lastUpdated?: string;
@@ -29,112 +33,134 @@ interface StaticPageLayoutProps {
 
 export default function StaticPageLayout({ children, title, subtitle, lastUpdated }: StaticPageLayoutProps) {
     const location = useLocation();
-    const { user } = useAuth();
+    const { user, loading } = useAuth();
+    const isAuthenticated = Boolean(user);
+    const ctaPath = isAuthenticated ? '/dashboard' : '/login';
+    const ctaLabel = loading ? 'Checking' : isAuthenticated ? 'Dashboard' : 'Start creating';
+
+    const handlePendingAuthClick = (event: MouseEvent<HTMLAnchorElement>) => {
+        if (loading) event.preventDefault();
+    };
 
     return (
-        <div className="min-h-screen bg-[var(--color-surface)] flex flex-col font-sans">
-            {/* Navbar */}
-            <nav className="sticky top-0 z-50 bg-[var(--color-surface)]/80 backdrop-blur-xl border-b border-[var(--color-gray-200)]/60">
-                <div className="max-w-6xl mx-auto px-6 flex items-center justify-between h-16">
-                    <Link to="/" className="flex items-center gap-2.5 group">
-                        <div className="w-8 h-8 rounded-lg bg-[var(--color-primary)] text-white flex items-center justify-center font-serif italic text-base shadow-sm transition-transform group-hover:scale-105">
-                            S
-                        </div>
-                        <span className="font-serif font-medium text-lg tracking-tight text-[var(--color-gray-900)] hidden sm:inline">
-                            SubtitleAI Pro
-                        </span>
+        <div className="apple-page apple-no-shadow">
+            <nav className="sticky top-0 z-50 border-b border-border bg-background/78 backdrop-blur-2xl">
+                <div className="apple-wide flex h-16 items-center justify-between">
+                    <Link to="/" className="flex items-center" aria-label="Subtitlepro home">
+                        <BrandLogo variant="wordmark" sizeClassName="h-9 w-[146px]" alt="Subtitlepro" />
                     </Link>
 
-                    <div className="flex items-center gap-3">
-                        {user ? (
-                            <>
-                                {user.photoURL && (
-                                    <img src={user.photoURL} alt="" className="w-7 h-7 rounded-full border border-[var(--color-gray-200)]" referrerPolicy="no-referrer" />
-                                )}
-                                <Link to="/dashboard" className="claude-button-primary px-5 py-2 rounded-lg text-sm">
-                                    Dashboard
-                                </Link>
-                            </>
-                        ) : (
-                            <>
-                                <Link to="/login" className="text-sm font-medium text-[var(--color-gray-600)] hover:text-[var(--color-gray-900)] transition-colors px-3 py-2">
-                                    Sign in
-                                </Link>
-                                <Link to="/login" className="claude-button-primary px-5 py-2 rounded-lg text-sm">
-                                    Start for free
-                                </Link>
-                            </>
+                    <div className="hidden items-center gap-1 lg:flex">
+                        {FOOTER_LINKS.Product.map((link) => (
+                            <Button key={link.href} variant="ghost" size="sm" asChild>
+                                <Link to={link.href}>{link.label}</Link>
+                            </Button>
+                        ))}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        {!loading && !isAuthenticated && (
+                            <Button variant="ghost" size="sm" asChild className="hidden sm:inline-flex">
+                                <Link to="/login">Sign in</Link>
+                            </Button>
                         )}
+                        <Button size="sm" asChild aria-disabled={loading}>
+                            <Link to={ctaPath} onClick={handlePendingAuthClick}>
+                                {ctaLabel}
+                                <ArrowRight className="h-4 w-4" />
+                            </Link>
+                        </Button>
                     </div>
                 </div>
             </nav>
 
-            {/* Page Header */}
-            <header className="border-b border-[var(--color-gray-200)] bg-white">
-                <div className="max-w-4xl mx-auto px-6 py-12 md:py-16">
-                    <Link
-                        to="/"
-                        className="inline-flex items-center gap-1.5 text-sm text-[var(--color-gray-500)] hover:text-[var(--color-gray-900)] transition-colors mb-6 group"
-                    >
-                        <ArrowLeft className="w-3.5 h-3.5 transition-transform group-hover:-translate-x-0.5" />
-                        Back to home
-                    </Link>
-                    <h1 className="text-3xl md:text-4xl font-serif text-[var(--color-gray-900)] tracking-tight mb-3">
-                        {title}
-                    </h1>
-                    {subtitle && (
-                        <p className="text-lg text-[var(--color-gray-500)] max-w-2xl">{subtitle}</p>
-                    )}
-                    {lastUpdated && (
-                        <p className="mt-4 text-sm text-[var(--color-gray-400)]">Last updated: {lastUpdated}</p>
-                    )}
+            <header className="border-b border-border">
+                <div className="apple-wide grid min-h-[420px] content-end gap-8 py-10 sm:py-14 lg:grid-cols-[1fr_360px]">
+                    <div>
+                        <Button variant="outline" size="sm" asChild className="mb-8">
+                            <Link to="/">
+                                <ArrowLeft className="h-4 w-4" />
+                                Home
+                            </Link>
+                        </Button>
+                        <span className="apple-kicker">
+                            <Sparkles className="h-4 w-4 text-primary" />
+                            Public product page
+                        </span>
+                        <h1 className="apple-title mt-5 max-w-[12ch]">{title}</h1>
+                        {subtitle && <p className="apple-subtitle mt-6">{subtitle}</p>}
+                    </div>
+
+                    <aside className="apple-material overflow-hidden rounded-[1.5rem] self-end">
+                        {[
+                            ['Scope', 'Subtitlepro public layer'],
+                            ['Access', isAuthenticated ? 'Signed in' : 'Public visitor'],
+                            ['Updated', lastUpdated || 'Current revision'],
+                        ].map(([label, value]) => (
+                            <div key={label} className="apple-list-row grid grid-cols-[96px_1fr] items-center">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+                                <p className="text-sm font-semibold">{value}</p>
+                            </div>
+                        ))}
+                    </aside>
                 </div>
             </header>
 
-            {/* Content */}
-            <main className="flex-1">
-                <div className="max-w-4xl mx-auto px-6 py-12 md:py-16">
-                    <div className="prose-content">
+            <main className="apple-wide grid gap-8 py-10 lg:grid-cols-[280px_1fr] lg:py-14">
+                <aside className="lg:sticky lg:top-24 lg:self-start">
+                    <div className="apple-material overflow-hidden rounded-[1.5rem]">
+                        {FOOTER_LINKS.Legal.map((link) => {
+                            const active = location.pathname === link.href;
+                            return (
+                                <Link
+                                    key={link.href}
+                                    to={link.href}
+                                    className={`apple-list-row flex items-center justify-between text-sm font-semibold ${
+                                        active ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'
+                                    }`}
+                                >
+                                    {link.label}
+                                    {active ? <Check className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
+                                </Link>
+                            );
+                        })}
+                    </div>
+                    <div className="apple-grouped mt-5 p-5">
+                        <ShieldCheck className="h-5 w-5 text-primary" />
+                        <p className="mt-3 text-sm font-semibold">Dashboard data, media, exports, and billing require a verified secure session.</p>
+                    </div>
+                </aside>
+
+                <section className="min-w-0">
+                    <div className="apple-material rounded-[1.5rem] p-5 sm:p-8">
                         {children}
                     </div>
-                </div>
+                </section>
             </main>
 
-            {/* Footer */}
-            <footer className="py-12 px-6 border-t border-[var(--color-gray-200)] bg-white">
-                <div className="max-w-6xl mx-auto">
-                    <div className="flex flex-col md:flex-row items-start justify-between gap-10">
-                        <div className="max-w-xs">
-                            <div className="flex items-center gap-2.5 mb-3">
-                                <div className="w-6 h-6 rounded bg-[var(--color-primary)] text-white flex items-center justify-center font-serif italic text-xs">S</div>
-                                <span className="font-serif font-medium text-[var(--color-gray-900)]">SubtitleAI Pro</span>
-                            </div>
-                            <p className="text-sm text-[var(--color-gray-500)] leading-relaxed">
-                                AI-powered subtitles and translations for professionals worldwide.
-                            </p>
-                        </div>
-                        <div className="flex flex-wrap gap-x-14 gap-y-6 text-sm">
-                            {Object.entries(FOOTER_LINKS).map(([category, links]) => (
-                                <div key={category} className="flex flex-col gap-2.5">
-                                    <span className="text-xs font-semibold text-[var(--color-gray-500)] uppercase tracking-wider">{category}</span>
+            <footer className="border-t border-border py-8">
+                <div className="apple-wide grid gap-8 md:grid-cols-[1fr_1.2fr] md:items-start">
+                    <div>
+                        <Link to="/" className="flex w-max items-center" aria-label="Subtitlepro home">
+                            <BrandLogo variant="wordmark" sizeClassName="h-8 w-[130px]" alt="Subtitlepro" />
+                        </Link>
+                        <p className="mt-4 max-w-md text-sm font-medium leading-6 text-muted-foreground">
+                            Public pages designed around clarity, trust, accessibility, and production-grade AI video workflows.
+                        </p>
+                    </div>
+                    <div className="grid gap-6 sm:grid-cols-3">
+                        {Object.entries(FOOTER_LINKS).map(([category, links]) => (
+                            <div key={category}>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{category}</p>
+                                <div className="mt-3 grid gap-2 text-sm font-medium">
                                     {links.map((link) => (
-                                        <Link
-                                            key={link.href}
-                                            to={link.href}
-                                            className={`hover:text-[var(--color-gray-900)] transition-colors ${location.pathname === link.href
-                                                ? 'text-[var(--color-primary)] font-medium'
-                                                : 'text-[var(--color-gray-600)]'
-                                                }`}
-                                        >
+                                        <Link key={link.href} to={link.href} className="text-muted-foreground hover:text-foreground">
                                             {link.label}
                                         </Link>
                                     ))}
                                 </div>
-                            ))}
-                        </div>
-                    </div>
-                    <div className="mt-10 pt-6 border-t border-[var(--color-gray-200)] text-xs text-[var(--color-gray-400)]">
-                        © 2025 SubtitleAI Pro. All rights reserved.
+                            </div>
+                        ))}
                     </div>
                 </div>
             </footer>

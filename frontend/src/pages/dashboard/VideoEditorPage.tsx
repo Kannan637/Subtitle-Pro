@@ -2,11 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     ArrowLeft, Play, Pause, Volume2, VolumeX, Maximize,
-    Download, Edit3, X, Search, Clock, ChevronDown,
+    Download, Edit3, X, Search, ChevronDown,
     Loader2, AlertCircle, SkipBack, SkipForward, Check,
     Sparkles, Globe
 } from 'lucide-react';
-import { projectsApi, subtitlesApi, mediaApi, transcriptionApi } from '@/lib/api';
+import { getApiErrorMessage, projectsApi, subtitlesApi, mediaApi, transcriptionApi } from '@/lib/api';
 import type { Project, SubtitleCue, SubtitleTrack } from '@/lib/api';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -51,6 +51,9 @@ const LANGUAGES = [
 export default function VideoEditorPage() {
     const { projectId } = useParams<{ projectId: string }>();
     const navigate = useNavigate();
+    const validProjectId = projectId && !["null", "undefined", "new", ""].includes(projectId.trim().toLowerCase())
+        ? projectId
+        : null;
 
     // Data
     const [project, setProject] = useState<Project | null>(null);
@@ -58,10 +61,13 @@ export default function VideoEditorPage() {
     const [selectedTrack, setSelectedTrack] = useState('');
     const [cues, setCues] = useState<SubtitleCue[]>([]);
     const [videoUrl, setVideoUrl] = useState('');
+    const videoUrlRef = useRef(''); // C-2: track blob URL for proper cleanup
 
     // Playback
     const [isPlaying, setIsPlaying] = useState(false);
-    const [currentTime, setCurrentTime] = useState(0); // ms
+    // H-2: currentTime updated at ~4fps via throttle; 60fps handled by DOM mutations
+    const [currentTime, setCurrentTime] = useState(0); // ms (throttled)
+    const currentTimeRef = useRef(0); // ms (updated every frame)
     const [duration, setDuration] = useState(0); // ms
     const [volume, setVolume] = useState(1);
     const [isMuted, setIsMuted] = useState(false);
@@ -89,27 +95,38 @@ export default function VideoEditorPage() {
     const cueListRef = useRef<HTMLDivElement>(null);
     const timelineRef = useRef<HTMLDivElement>(null);
     const progressBarRef = useRef<HTMLDivElement>(null);
+    const progressFillRef = useRef<HTMLDivElement>(null); // H-2: direct DOM for 60fps
+    const progressThumbRef = useRef<HTMLDivElement>(null); // H-2: direct DOM for 60fps
     const animFrameRef = useRef<number>(0);
+    // C-1: keep cues accessible from stable syncTime callback without recreating it
+    const cuesRef = useRef<SubtitleCue[]>([]);
+    const lastThrottleRef = useRef(0); // H-2: throttle gate
 
     // ─── Load Data ───────────────────────────────────────────────────────────
 
     useEffect(() => {
-        if (!projectId) return;
+        if (!validProjectId) {
+            navigate('/dashboard', { replace: true });
+            return;
+        }
 
         const loadData = async () => {
             setLoading(true);
             setError('');
             try {
-                const projRes = await projectsApi.get(projectId);
+                const projRes = await projectsApi.get(validProjectId);
                 setProject(projRes.data);
 
-                const blobUrl = await mediaApi.getAuthenticatedStreamUrl(projectId);
+                const blobUrl = await mediaApi.getAuthenticatedStreamUrl(validProjectId);
+                // C-2: revoke previous blob URL before assigning a new one
+                if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
+                videoUrlRef.current = blobUrl;
                 setVideoUrl(blobUrl);
 
                 // Try loading subtitles
                 await loadSubtitles();
             } catch (err: any) {
-                setError(err.response?.data?.detail || 'Failed to load project');
+                setError(getApiErrorMessage(err, 'Failed to load project'));
             } finally {
                 setLoading(false);
             }
@@ -118,48 +135,67 @@ export default function VideoEditorPage() {
         loadData();
 
         return () => {
-            if (videoUrl) URL.revokeObjectURL(videoUrl);
+            // C-2: revoke the blob URL we actually created (not stale closure value)
+            if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
         };
-    }, [projectId]);
+    }, [navigate, validProjectId]);
 
-    const loadSubtitles = async () => {
-        if (!projectId) return;
+    const loadSubtitles = useCallback(async () => {
+        if (!validProjectId) return;
         try {
-            const subRes = await subtitlesApi.get(projectId);
+            const subRes = await subtitlesApi.get(validProjectId);
             const allTracks = subRes.data.tracks || [];
             setTracks(allTracks);
             if (allTracks.length > 0) {
                 const first = allTracks[0];
                 setSelectedTrack(first.track_id);
-                setCues(first.cues || []);
+                const loadedCues = first.cues || [];
+                setCues(loadedCues);
+                cuesRef.current = loadedCues; // C-1: keep ref in sync
             }
         } catch {
-            // No subtitles yet
+            // No subtitles yet — not an error
             setTracks([]);
             setCues([]);
+            cuesRef.current = [];
         }
-    };
+    }, [validProjectId]);
 
     // ─── Video Time Sync ─────────────────────────────────────────────────────
-
+    // C-1: syncTime has NO deps — uses refs so it never gets recreated,
+    // meaning the RAF loop starts exactly once and never multiplies.
+    // H-2: React state (setCurrentTime, setActiveCueId) is throttled to ~4fps;
+    // the progress bar DOM is mutated directly at full 60fps.
     const syncTime = useCallback(() => {
         const video = videoRef.current;
         if (!video) return;
 
         const timeMs = video.currentTime * 1000;
-        setCurrentTime(timeMs);
-        setIsPlaying(!video.paused);
+        currentTimeRef.current = timeMs;
 
-        const active = cues.find(c => timeMs >= c.start_ms && timeMs <= c.end_ms);
-        setActiveCueId(active?._id || null);
+        // 60fps: direct DOM update for smooth progress bar
+        const dur = video.duration * 1000 || 0;
+        const pct = dur > 0 ? (timeMs / dur) * 100 : 0;
+        if (progressFillRef.current) progressFillRef.current.style.width = `${pct}%`;
+        if (progressThumbRef.current) progressThumbRef.current.style.left = `calc(${pct}% - 6px)`;
+
+        // ~4fps: throttled React state for cue highlight and subtitle overlay
+        const now = performance.now();
+        if (now - lastThrottleRef.current >= 250) {
+            lastThrottleRef.current = now;
+            setCurrentTime(timeMs);
+            setIsPlaying(!video.paused);
+            const active = cuesRef.current.find(c => timeMs >= c.start_ms && timeMs <= c.end_ms);
+            setActiveCueId(prev => prev === (active?._id || null) ? prev : (active?._id || null));
+        }
 
         animFrameRef.current = requestAnimationFrame(syncTime);
-    }, [cues]);
+    }, []); // stable — no deps needed thanks to refs
 
     useEffect(() => {
         animFrameRef.current = requestAnimationFrame(syncTime);
         return () => cancelAnimationFrame(animFrameRef.current);
-    }, [syncTime]);
+    }, [syncTime]); // still correct: syncTime is now stable so this runs once
 
     // Auto-scroll to active cue
     useEffect(() => {
@@ -237,17 +273,17 @@ export default function VideoEditorPage() {
     // ─── AI Transcription ────────────────────────────────────────────────────
 
     const handleTranscribe = async () => {
-        if (!projectId) return;
+        if (!validProjectId) return;
         setIsTranscribing(true);
         setError('');
         try {
-            await transcriptionApi.start(projectId, transcriptionLang, transcriptionModel);
+            await transcriptionApi.start(validProjectId, transcriptionLang, transcriptionModel);
             setSuccessMsg('Transcription complete! Subtitles generated.');
             setTimeout(() => setSuccessMsg(''), 4000);
             // Reload subtitles
             await loadSubtitles();
         } catch (err: any) {
-            const detail = err.response?.data?.detail || err.message || 'Transcription failed';
+            const detail = getApiErrorMessage(err, 'Transcription failed');
             setError(detail);
         } finally {
             setIsTranscribing(false);
@@ -259,7 +295,9 @@ export default function VideoEditorPage() {
     const handleSelectTrack = (trackId: string) => {
         setSelectedTrack(trackId);
         const track = tracks.find(t => t.track_id === trackId);
-        if (track) setCues(track.cues || []);
+        const newCues = track?.cues || [];
+        setCues(newCues);
+        cuesRef.current = newCues; // C-1: keep ref in sync on track switch
     };
 
     // ─── Cue Editing ─────────────────────────────────────────────────────────
@@ -281,7 +319,7 @@ export default function VideoEditorPage() {
             setCues(prev => prev.map(c => c._id === cueId ? { ...c, text: editText } : c));
             setEditingCueId(null);
         } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to save');
+            setError(getApiErrorMessage(err, 'Failed to save'));
         } finally {
             setSaving(false);
         }
@@ -290,12 +328,12 @@ export default function VideoEditorPage() {
     // ─── Export ──────────────────────────────────────────────────────────────
 
     const handleExport = async () => {
-        if (!projectId) return;
+        if (!validProjectId) return;
         setExporting(true);
         try {
             const track = tracks.find(t => t.track_id === selectedTrack);
             const lang = track?.language_code;
-            const res = await subtitlesApi.export(projectId, exportFormat, lang);
+            const res = await subtitlesApi.export(validProjectId, exportFormat, lang);
 
             if (exportFormat === 'json') {
                 const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
@@ -311,7 +349,7 @@ export default function VideoEditorPage() {
                 a.click(); URL.revokeObjectURL(url);
             }
         } catch (err: any) {
-            setError(err.response?.data?.detail || 'Export failed');
+            setError(getApiErrorMessage(err, 'Export failed'));
         } finally {
             setExporting(false);
         }
@@ -569,8 +607,8 @@ export default function VideoEditorPage() {
                                             key={cue._id || idx}
                                             data-cue-id={cue._id}
                                             className={`group px-3 py-2.5 border-b border-[#1e1e1e] cursor-pointer transition-all duration-150 ${isActive
-                                                    ? 'bg-[var(--color-primary)]/10 border-l-2 border-l-[var(--color-primary)]'
-                                                    : 'hover:bg-[#1a1a1a] border-l-2 border-l-transparent'
+                                                ? 'bg-[var(--color-primary)]/10 border-l-2 border-l-[var(--color-primary)]'
+                                                : 'hover:bg-[#1a1a1a] border-l-2 border-l-transparent'
                                                 }`}
                                             onClick={() => !isEditing && seekTo(cue.start_ms)}
                                         >
@@ -680,21 +718,21 @@ export default function VideoEditorPage() {
 
                     {/* ─── Playback Controls ─── */}
                     <div className="bg-[#141414] border-t border-[#2a2a2a] shrink-0">
-                        {/* Progress bar (seekable) */}
+                        {/* Progress bar (seekable) — H-2: fill/thumb use DOM refs for 60fps updates */}
                         <div
                             ref={progressBarRef}
                             className="h-2 bg-[#2a2a2a] cursor-pointer group relative mx-4 mt-1 rounded-full"
                             onMouseDown={handleProgressMouseDown}
                         >
-                            {/* Buffered / progress */}
+                            {/* Fill — ref-driven at 60fps */}
                             <div
-                                className="absolute top-0 left-0 h-full bg-[var(--color-primary)] rounded-full transition-[width] duration-75"
-                                style={{ width: `${playheadPercent}%` }}
+                                ref={progressFillRef}
+                                className="absolute top-0 left-0 h-full bg-[var(--color-primary)] rounded-full"
                             />
-                            {/* Thumb */}
+                            {/* Thumb — ref-driven at 60fps */}
                             <div
+                                ref={progressThumbRef}
                                 className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-[var(--color-primary)] rounded-full shadow-md transition-opacity ${isDraggingTimeline ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
-                                style={{ left: `calc(${playheadPercent}% - 6px)` }}
                             />
                         </div>
 
@@ -767,8 +805,8 @@ export default function VideoEditorPage() {
                             <div
                                 key={cue._id || idx}
                                 className={`absolute top-1.5 bottom-1.5 rounded-sm transition-colors cursor-pointer ${isActive
-                                        ? 'bg-[var(--color-primary)] shadow-lg shadow-[var(--color-primary)]/30'
-                                        : 'bg-[#3a3a5a] hover:bg-[#4a4a6a]'
+                                    ? 'bg-[var(--color-primary)] shadow-lg shadow-[var(--color-primary)]/30'
+                                    : 'bg-[#3a3a5a] hover:bg-[#4a4a6a]'
                                     }`}
                                 style={{ left: `${left}%`, width: `${width}%` }}
                                 title={cue.text}

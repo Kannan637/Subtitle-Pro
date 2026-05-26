@@ -1,139 +1,220 @@
-import { Sparkles, FileVideo2, FilePlay, UploadCloud, MoreHorizontal } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { projectsApi } from '@/lib/api';
-import type { Project } from '@/lib/api';
+import {
+    AlertCircle,
+    FilePlay,
+    FileVideo2,
+    MoreHorizontal,
+    Sparkles,
+    UploadCloud,
+    X,
+} from 'lucide-react';
+import { projectsApi, type Project } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Skeleton } from '@/components/ui/skeleton';
 
 function formatDate(dateStr: string) {
     const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return 'recently';
     const now = new Date();
-    const isToday = d.toDateString() === now.toDateString();
-
-    if (isToday) return 'today';
-    const diffTime = Math.abs(now.getTime() - d.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
+    if (d.toDateString() === now.toDateString()) return 'today';
+    const diffDays = Math.ceil(Math.abs(now.getTime() - d.getTime()) / 86_400_000);
     if (diffDays === 1) return 'yesterday';
     if (diffDays < 7) return `${diffDays} days ago`;
-
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function statusVariant(status?: string): 'success' | 'warning' | 'destructive' | 'secondary' {
+    const normalized = (status || '').toLowerCase();
+    if (normalized === 'ready' || normalized === 'complete') return 'success';
+    if (normalized === 'processing' || normalized === 'queued') return 'warning';
+    if (normalized === 'error' || normalized === 'failed') return 'destructive';
+    return 'secondary';
 }
 
 export default function TranscribePage() {
     const [projects, setProjects] = useState<Project[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+    const [error, setError] = useState('');
+    const [pendingDelete, setPendingDelete] = useState<Project | null>(null);
     const navigate = useNavigate();
 
-    // Close dropdown on outside click
     useEffect(() => {
-        const handleClickOutside = () => setOpenDropdownId(null);
-        document.addEventListener('click', handleClickOutside);
-        return () => document.removeEventListener('click', handleClickOutside);
+        let mounted = true;
+        projectsApi.listAll()
+            .then((res) => {
+                if (!mounted) return;
+                setProjects(res.data.filter((p: Project) => !p.type || p.type === 'subtitle'));
+            })
+            .catch(() => {
+                if (!mounted) return;
+                setError('Failed to load projects. Please refresh to try again.');
+            })
+            .finally(() => {
+                if (mounted) setIsLoading(false);
+            });
+        return () => {
+            mounted = false;
+        };
     }, []);
 
-    const handleDeleteProject = async (id: string, e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (!window.confirm("Are you sure you want to delete this project?")) return;
-        setOpenDropdownId(null);
+    const handleDeleteConfirmed = async () => {
+        if (!pendingDelete) return;
+        const id = pendingDelete.id;
+        setPendingDelete(null);
         try {
-            setProjects(prev => prev.filter(p => p.id !== id));
             await projectsApi.delete(id);
-        } catch (error) {
-            console.error("Failed to delete project:", error);
+            setProjects((prev) => prev.filter((p) => p.id !== id));
+        } catch {
+            setError('Failed to delete project. Please try again.');
         }
     };
 
-    useEffect(() => {
-        projectsApi.list().then(res => {
-            setProjects(res.data.filter(p => !p.type || p.type === 'subtitle'));
-            setIsLoading(false);
-        }).catch(() => setIsLoading(false));
-    }, []);
-
     return (
-        <div className="max-w-6xl mx-auto">
-            <div className="mb-6 flex items-center justify-between">
-                <div>
-                    <h1 className="text-2xl font-serif text-[var(--color-gray-900)] flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-primary-hover)] rounded-xl flex items-center justify-center">
-                            <FileVideo2 className="w-5 h-5 text-white" />
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 sm:p-6 lg:p-8">
+            <Card>
+                <CardContent className="p-5 sm:p-6">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                        <div>
+                            <Badge variant="secondary" className="mb-3 gap-2">
+                                <Sparkles className="h-3.5 w-3.5" />
+                                AI Video Subtitle
+                            </Badge>
+                            <h1 className="text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">Subtitle projects</h1>
+                            <p className="mt-2 max-w-xl text-sm font-medium text-muted-foreground">
+                                Generate, review, and export subtitle tracks.
+                            </p>
                         </div>
-                        AI Video Subtitle
-                    </h1>
-                    <p className="mt-2 text-sm text-[var(--color-gray-500)]">
-                        Manage all your subtitled video projects here.
-                    </p>
-                </div>
-            </div>
-
-            {projects.length === 0 && !isLoading ? (
-                <div className="mt-8 mb-12 flex flex-col items-center justify-center text-center p-12 border border-[var(--color-gray-200)] border-dashed rounded-2xl bg-[var(--color-surface-secondary)]/50">
-                    <div className="w-16 h-16 bg-white rounded-2xl border border-[var(--color-gray-200)] shadow-sm flex items-center justify-center mb-6 relative">
-                        <Sparkles className="w-8 h-8 text-[var(--color-primary)] absolute -top-2 -right-2" />
-                        <FileVideo2 className="w-8 h-8 text-[var(--color-gray-400)]" />
+                        <Button size="lg" onClick={() => navigate('/dashboard')}>
+                            <UploadCloud className="h-4 w-4" />
+                            Start project
+                        </Button>
                     </div>
-                    <h2 className="text-2xl font-serif text-[var(--color-gray-900)] mb-3">No subtitle projects yet</h2>
-                    <p className="text-base text-[var(--color-gray-500)] max-w-md mb-8">Upload a video or audio file to get started. Our AI will automatically generate accurate subtitles.</p>
-                    <button
-                        onClick={() => navigate('/dashboard')}
-                        className="claude-button-primary px-6 py-3 rounded-xl shadow-sm font-medium flex items-center gap-2"
-                    >
-                        <UploadCloud className="w-4 h-4" />
-                        Go to Dashboard to Upload
-                    </button>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                    {projects.map((project) => (
-                        <div
-                            key={project.id}
-                            className="p-5 bg-white border border-[var(--color-gray-200)] rounded-2xl shadow-sm hover:border-[var(--color-primary-light)] hover:shadow-md active:shadow-sm transition-all cursor-pointer group"
-                            onClick={() => navigate(`/dashboard/video-editor/${project.id}`)}
-                        >
-                            <div className="flex items-start justify-between mb-4 relative">
-                                <div className="flex gap-2">
-                                    <div className="w-10 h-10 rounded-xl bg-[var(--color-primary-light)] flex items-center justify-center text-[var(--color-primary)]">
-                                        <FilePlay className="w-5 h-5" />
-                                    </div>
-                                    {project.status === 'processing' ? (
-                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 max-h-6 rounded-md text-xs font-medium bg-[var(--color-warning-light)] text-[var(--color-warning)] border border-[var(--color-warning)]/20">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-warning)] animate-pulse"></span>
-                                            Processing
-                                        </span>
-                                    ) : project.status === 'error' ? (
-                                        <span className="inline-flex items-center px-2.5 py-1 max-h-6 rounded-md text-xs font-medium bg-red-50 text-red-600 border border-red-200">
-                                            Failed
-                                        </span>
-                                    ) : (
-                                        <span className="inline-flex items-center px-2.5 py-1 max-h-6 rounded-md text-xs font-medium bg-[var(--color-success-light)] text-[var(--color-success)] border border-[var(--color-success)]/20">
-                                            Ready
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="relative">
-                                    <button onClick={(e) => { e.stopPropagation(); setOpenDropdownId(openDropdownId === project.id ? null : project.id) }} className="p-1.5 rounded-lg text-[var(--color-gray-400)] hover:text-[var(--color-gray-700)] hover:bg-[var(--color-gray-100)] transition-colors">
-                                        <MoreHorizontal className="w-4 h-4" />
-                                    </button>
-                                    {openDropdownId === project.id && (
-                                        <div className="absolute right-0 top-8 w-36 bg-white border border-[var(--color-gray-200)] rounded-xl shadow-lg py-1 z-50 animate-in fade-in zoom-in-95 duration-100 text-left">
-                                            <button onClick={(e) => { e.stopPropagation(); setOpenDropdownId(null); navigate(`/dashboard/video-editor/${project.id}`); }} className="w-full text-left px-3 py-2 text-sm font-medium hover:bg-[var(--color-gray-50)] text-[var(--color-gray-700)]">Open Project</button>
-                                            <div className="h-px bg-[var(--color-gray-100)] my-1"></div>
-                                            <button onClick={(e) => handleDeleteProject(project.id, e)} className="w-full text-left px-3 py-2 text-sm font-medium hover:bg-red-50 text-red-600 transition-colors">Delete</button>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                            <h3 className="font-medium text-[var(--color-gray-900)] mb-1 truncate group-hover:text-[var(--color-primary)] transition-colors">{project.name}</h3>
-                            <div className="flex items-center gap-3 text-xs text-[var(--color-gray-500)]">
-                                <span>{project.duration_sec ? `${Math.round(project.duration_sec / 60)}m` : '0m'}</span>
-                                <span>&middot;</span>
-                                <span>{formatDate(project.created_at)}</span>
-                            </div>
-                        </div>
-                    ))}
-                </div>
+                </CardContent>
+            </Card>
+
+            {error && (
+                <Alert variant="destructive" className="grid-cols-[20px_1fr_auto]">
+                    <AlertCircle className="h-4 w-4" />
+                    <div>
+                        <AlertTitle>Unable to continue</AlertTitle>
+                        <AlertDescription>{error}</AlertDescription>
+                    </div>
+                    <Button variant="ghost" size="icon-sm" onClick={() => setError('')}>
+                        <X className="h-4 w-4" />
+                    </Button>
+                </Alert>
             )}
+
+            <Card>
+                <CardHeader className="border-b border-border">
+                    <CardTitle>Projects</CardTitle>
+                    <CardDescription>Open a subtitle workspace.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-4 sm:p-5">
+                    {isLoading ? (
+                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                            {Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-44 rounded-xl" />)}
+                        </div>
+                    ) : projects.length === 0 && !error ? (
+                        <div className="flex flex-col items-center justify-center px-5 py-14 text-center">
+                            <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-border bg-muted">
+                                <FileVideo2 className="h-7 w-7 text-primary" />
+                            </div>
+                            <CardTitle>No subtitle projects yet</CardTitle>
+                            <CardDescription className="mt-2 max-w-md">
+                                Upload a video or audio file to get started. Subtitle projects will appear here.
+                            </CardDescription>
+                            <Button className="mt-6" onClick={() => navigate('/dashboard')}>
+                                <UploadCloud className="h-4 w-4" />
+                                Start Subtitle Project
+                            </Button>
+                        </div>
+                    ) : (
+                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                            {projects.map((project) => (
+                                <Card
+                                    key={project.id}
+                                    className="group cursor-pointer transition-colors hover:border-primary/35"
+                                    onClick={() => navigate(`/dashboard/video-editor/${project.id}`)}
+                                >
+                                    <CardHeader className="pb-3">
+                                        <div className="mb-3 flex items-start justify-between gap-3">
+                                            <div className="flex items-center gap-2">
+                                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-primary">
+                                                    <FilePlay className="h-5 w-5" />
+                                                </div>
+                                                <Badge variant={statusVariant(project.status)} className="capitalize">
+                                                    {project.status || 'ready'}
+                                                </Badge>
+                                            </div>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
+                                                    <Button variant="ghost" size="icon-sm">
+                                                        <MoreHorizontal className="h-4 w-4" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        navigate(`/dashboard/video-editor/${project.id}`);
+                                                    }}>
+                                                        Open Project
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuSeparator />
+                                                    <DropdownMenuItem variant="destructive" onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        setPendingDelete(project);
+                                                    }}>
+                                                        Delete
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </div>
+                                        <CardTitle className="truncate text-base">{project.name}</CardTitle>
+                                        <CardDescription>
+                                            {project.duration_sec ? `${Math.round(project.duration_sec / 60)}m` : '0m'} · {formatDate(project.created_at)}
+                                        </CardDescription>
+                                    </CardHeader>
+                                </Card>
+                            ))}
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            <Dialog open={Boolean(pendingDelete)} onOpenChange={(open) => !open && setPendingDelete(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Delete project?</DialogTitle>
+                        <DialogDescription>
+                            {pendingDelete?.name} will be permanently deleted and cannot be recovered.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setPendingDelete(null)}>Cancel</Button>
+                        <Button variant="destructive" onClick={() => void handleDeleteConfirmed()}>Delete</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

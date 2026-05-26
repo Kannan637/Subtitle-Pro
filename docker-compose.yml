@@ -1,37 +1,27 @@
+# ARCH-06 fix: Removed unused postgres and redis services.
+# This project uses MongoDB (via Atlas) + Firebase. Postgres and Redis
+# were left over from an initial scaffold and are not used.
+#
+# To run MongoDB locally for development:
+#   docker run -d -p 27017:27017 --name subtitleai-mongo mongo:7
+#
+# Or use MongoDB Atlas (recommended for production).
+
 version: '3.8'
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: subtitleai-postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgrespassword
-      POSTGRES_DB: subtitleai
+  mongo:
+    image: mongo:7
+    container_name: subtitleai-mongo
     ports:
-      - "5432:5432"
+      - "27017:27017"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - mongo-data:/data/db
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d subtitleai"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    container_name: subtitleai-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
+      interval: 10s
       timeout: 5s
       retries: 5
 
 volumes:
-  postgres-data:
-  redis-data:
+  mongo-data:

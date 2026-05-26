@@ -1,6 +1,13 @@
-import { FilePlay, AlignLeft, Save, Download, Loader2, ChevronDown, CheckCircle, AlertCircle } from 'lucide-react';
-import { useState, useEffect } from 'react';
-import { projectsApi, subtitlesApi } from '@/lib/api';
+import { useEffect, useState } from 'react';
+import { AlertCircle, AlignLeft, CheckCircle, ChevronDown, Download, FilePlay, Loader2, Save } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
+import { getApiErrorMessage, projectsApi, subtitlesApi } from '@/lib/api';
 import type { Project, SubtitleCue, SubtitleTrack } from '@/lib/api';
 
 function formatTime(ms: number): string {
@@ -9,6 +16,18 @@ function formatTime(ms: number): string {
     const s = Math.floor((ms % 60000) / 1000);
     const milli = ms % 1000;
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(milli).padStart(3, '0')}`;
+}
+
+function SelectShell(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
+    return (
+        <div className="relative">
+            <select
+                {...props}
+                className={`h-10 w-full appearance-none rounded-md border border-input bg-background px-3 py-2 pr-9 text-sm outline-none ring-offset-background transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${props.className ?? ''}`}
+            />
+            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        </div>
+    );
 }
 
 export default function SubtitleEditorPage() {
@@ -27,9 +46,13 @@ export default function SubtitleEditorPage() {
     const [error, setError] = useState('');
 
     useEffect(() => {
-        projectsApi.list().then(res => {
-            setProjects(res.data.filter(p => p.status === 'ready'));
-        }).catch(() => { });
+        projectsApi.listAll()
+            .then((res) => {
+                setProjects((res.data as Project[]).filter((project) => project.status === 'ready'));
+            })
+            .catch(() => {
+                setProjects([]);
+            });
     }, []);
 
     const loadSubtitles = async (projectId: string) => {
@@ -46,8 +69,8 @@ export default function SubtitleEditorPage() {
                 setSelectedTrack(first.track_id);
                 setCues(first.cues || []);
             }
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to load subtitles');
+        } catch (err: unknown) {
+            setError(getApiErrorMessage(err, 'Failed to load subtitles'));
         } finally {
             setLoading(false);
         }
@@ -55,12 +78,14 @@ export default function SubtitleEditorPage() {
 
     const handleSelectProject = (id: string) => {
         setSelectedProject(id);
-        if (id) loadSubtitles(id);
+        if (id) {
+            void loadSubtitles(id);
+        }
     };
 
     const handleSelectTrack = (trackId: string) => {
         setSelectedTrack(trackId);
-        const track = tracks.find(t => t.track_id === trackId);
+        const track = tracks.find((item) => item.track_id === trackId);
         if (track) setCues(track.cues || []);
     };
 
@@ -73,12 +98,12 @@ export default function SubtitleEditorPage() {
         setSaving(true);
         try {
             await subtitlesApi.updateCue(cueId, { text: editText });
-            setCues(prev => prev.map(c => c._id === cueId ? { ...c, text: editText } : c));
+            setCues((prev) => prev.map((cue) => (cue._id === cueId ? { ...cue, text: editText } : cue)));
             setEditingCue(null);
             setMessage('Cue saved');
             setTimeout(() => setMessage(''), 2000);
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to save cue');
+        } catch (err: unknown) {
+            setError(getApiErrorMessage(err, 'Failed to save cue'));
         } finally {
             setSaving(false);
         }
@@ -88,7 +113,7 @@ export default function SubtitleEditorPage() {
         if (!selectedProject) return;
         setExporting(true);
         try {
-            const track = tracks.find(t => t.track_id === selectedTrack);
+            const track = tracks.find((item) => item.track_id === selectedTrack);
             const lang = track?.language_code;
             const res = await subtitlesApi.export(selectedProject, exportFormat, lang);
 
@@ -111,190 +136,211 @@ export default function SubtitleEditorPage() {
             }
             setMessage(`Exported as ${exportFormat.toUpperCase()}`);
             setTimeout(() => setMessage(''), 2000);
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Export failed');
+        } catch (err: unknown) {
+            setError(getApiErrorMessage(err, 'Export failed'));
         } finally {
             setExporting(false);
         }
     };
 
     return (
-        <div className="max-w-5xl mx-auto">
-            <div className="mb-6">
-                <h1 className="text-2xl font-serif text-[var(--color-gray-900)] flex items-center gap-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center">
-                        <FilePlay className="w-5 h-5 text-white" />
-                    </div>
-                    Subtitle Editor
-                </h1>
-                <p className="mt-2 text-sm text-[var(--color-gray-500)]">
-                    View, edit, and export your subtitle tracks
-                </p>
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+            <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+                <div>
+                    <Badge variant="secondary" className="mb-3">
+                        <FilePlay className="h-3.5 w-3.5" />
+                        Subtitle workspace
+                    </Badge>
+                    <h1 className="text-3xl font-semibold tracking-tight text-foreground">Subtitle Editor</h1>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+                        Review generated subtitle tracks, correct individual cues, and export production files.
+                    </p>
+                </div>
+                <Badge variant={selectedProject ? 'success' : 'outline'}>
+                    {selectedProject ? `${cues.length} cues loaded` : 'Select a project'}
+                </Badge>
             </div>
 
-            {/* Controls */}
-            <div className="bg-white border border-[var(--color-gray-200)] rounded-2xl shadow-sm p-4 mb-6">
-                <div className="flex flex-wrap items-end gap-4">
-                    <div className="flex-1 min-w-[200px]">
-                        <label className="block text-xs font-medium text-[var(--color-gray-500)] mb-1">Project</label>
-                        <div className="relative">
-                            <select
+            <Card>
+                <CardHeader>
+                    <CardTitle>Track controls</CardTitle>
+                    <CardDescription>Choose the ready project, active subtitle track, and export format.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(180px,0.45fr)_220px]">
+                        <div className="space-y-2">
+                            <Label htmlFor="subtitle-project">Project</Label>
+                            <SelectShell
+                                id="subtitle-project"
                                 value={selectedProject}
-                                onChange={e => handleSelectProject(e.target.value)}
-                                className="claude-input w-full pr-10 py-2 rounded-xl appearance-none cursor-pointer text-sm"
+                                onChange={(event) => handleSelectProject(event.target.value)}
                             >
                                 <option value="">Select project...</option>
-                                {projects.map(p => (
-                                    <option key={p.id} value={p.id}>{p.name}</option>
+                                {projects.map((project) => (
+                                    <option key={project.id} value={project.id}>
+                                        {project.name}
+                                    </option>
                                 ))}
-                            </select>
-                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-gray-400)] pointer-events-none" />
+                            </SelectShell>
                         </div>
-                    </div>
 
-                    {tracks.length > 1 && (
-                        <div className="flex-1 min-w-[180px]">
-                            <label className="block text-xs font-medium text-[var(--color-gray-500)] mb-1">Track</label>
-                            <div className="relative">
-                                <select
-                                    value={selectedTrack}
-                                    onChange={e => handleSelectTrack(e.target.value)}
-                                    className="claude-input w-full pr-10 py-2 rounded-xl appearance-none cursor-pointer text-sm"
+                        <div className="space-y-2">
+                            <Label htmlFor="subtitle-track">Track</Label>
+                            <SelectShell
+                                id="subtitle-track"
+                                value={selectedTrack}
+                                onChange={(event) => handleSelectTrack(event.target.value)}
+                                disabled={tracks.length === 0}
+                            >
+                                {tracks.length === 0 && <option value="">No tracks</option>}
+                                {tracks.map((track) => (
+                                    <option key={track.track_id} value={track.track_id}>
+                                        {track.language_code.toUpperCase()} {track.is_original ? '(Original)' : '(Translated)'}
+                                    </option>
+                                ))}
+                            </SelectShell>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="subtitle-export">Export</Label>
+                            <div className="flex gap-2">
+                                <SelectShell
+                                    id="subtitle-export"
+                                    value={exportFormat}
+                                    onChange={(event) => setExportFormat(event.target.value)}
                                 >
-                                    {tracks.map(t => (
-                                        <option key={t.track_id} value={t.track_id}>
-                                            {t.language_code.toUpperCase()} {t.is_original ? '(Original)' : '(Translated)'}
-                                        </option>
-                                    ))}
-                                </select>
-                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-gray-400)] pointer-events-none" />
+                                    <option value="srt">SRT</option>
+                                    <option value="vtt">VTT</option>
+                                    <option value="txt">TXT</option>
+                                    <option value="json">JSON</option>
+                                </SelectShell>
+                                <Button
+                                    onClick={handleExport}
+                                    disabled={!selectedProject || cues.length === 0 || exporting}
+                                    className="shrink-0"
+                                >
+                                    {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                                    Export
+                                </Button>
                             </div>
                         </div>
-                    )}
-
-                    <div className="flex items-center gap-2">
-                        <div className="relative">
-                            <select
-                                value={exportFormat}
-                                onChange={e => setExportFormat(e.target.value)}
-                                className="claude-input py-2 pr-8 pl-3 rounded-xl appearance-none cursor-pointer text-sm"
-                            >
-                                <option value="srt">SRT</option>
-                                <option value="vtt">VTT</option>
-                                <option value="txt">TXT</option>
-                                <option value="json">JSON</option>
-                            </select>
-                            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--color-gray-400)] pointer-events-none" />
-                        </div>
-                        <button
-                            onClick={handleExport}
-                            disabled={!selectedProject || cues.length === 0 || exporting}
-                            className="claude-button-primary px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-1.5 disabled:opacity-50"
-                        >
-                            {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                            Export
-                        </button>
                     </div>
-                </div>
-            </div>
+                </CardContent>
+            </Card>
 
-            {/* Messages */}
             {message && (
-                <div className="bg-green-50 border border-green-200 rounded-xl p-3 mb-4 flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-green-600" />
-                    <p className="text-sm text-green-700">{message}</p>
-                </div>
+                <Alert variant="success">
+                    <CheckCircle className="h-4 w-4" />
+                    <AlertTitle>Saved</AlertTitle>
+                    <AlertDescription>{message}</AlertDescription>
+                </Alert>
             )}
+
             {error && (
-                <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-red-500" />
-                    <p className="text-sm text-red-600">{error}</p>
-                </div>
+                <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Subtitle editor error</AlertTitle>
+                    <AlertDescription>{error}</AlertDescription>
+                </Alert>
             )}
 
-            {/* Loading */}
             {loading && (
-                <div className="flex items-center justify-center py-20">
-                    <Loader2 className="w-8 h-8 animate-spin text-[var(--color-primary)]" />
-                </div>
+                <Card>
+                    <CardContent className="space-y-3 p-5">
+                        {Array.from({ length: 6 }).map((_, index) => (
+                            <Skeleton key={index} className="h-14 w-full" />
+                        ))}
+                    </CardContent>
+                </Card>
             )}
 
-            {/* Cue Editor Table */}
             {!loading && cues.length > 0 && (
-                <div className="bg-white border border-[var(--color-gray-200)] rounded-2xl shadow-sm overflow-hidden">
-                    <div className="px-5 py-3 border-b border-[var(--color-gray-200)] bg-[var(--color-surface-secondary)]/50 flex items-center justify-between">
-                        <span className="text-sm font-medium text-[var(--color-gray-700)]">
-                            <AlignLeft className="w-4 h-4 inline mr-1.5" />
-                            {cues.length} Subtitle Cues
-                        </span>
-                        <span className="text-xs text-[var(--color-gray-400)]">
-                            Click any cue to edit
-                        </span>
-                    </div>
-
-                    <div className="max-h-[500px] overflow-y-auto divide-y divide-[var(--color-gray-100)]">
-                        {cues.map((cue, idx) => (
+                <Card className="overflow-hidden">
+                    <CardHeader className="border-b bg-muted/30">
+                        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                            <div>
+                                <CardTitle className="flex items-center gap-2 text-base">
+                                    <AlignLeft className="h-4 w-4" />
+                                    {cues.length} subtitle cues
+                                </CardTitle>
+                                <CardDescription>Click any cue row to edit the text in place.</CardDescription>
+                            </div>
+                            <Badge variant="outline" className="font-mono">
+                                {exportFormat.toUpperCase()}
+                            </Badge>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="max-h-[560px] overflow-y-auto p-0">
+                        {cues.map((cue, index) => (
                             <div
-                                key={cue._id || idx}
-                                className={`flex items-start gap-3 px-5 py-3 hover:bg-[var(--color-surface-secondary)]/30 cursor-pointer transition-colors ${editingCue === cue._id ? 'bg-blue-50/50' : ''
-                                    }`}
+                                key={cue._id || index}
+                                className={`grid cursor-pointer grid-cols-[44px_142px_minmax(0,1fr)] gap-3 border-b px-5 py-3 transition-colors hover:bg-muted/40 ${
+                                    editingCue === cue._id ? 'bg-accent/60' : ''
+                                }`}
                                 onClick={() => editingCue !== cue._id && handleEditCue(cue)}
                             >
-                                {/* Sequence */}
-                                <div className="w-8 text-center text-xs font-mono text-[var(--color-gray-400)] pt-1 shrink-0">
-                                    {cue.sequence || idx + 1}
+                                <div className="pt-1 text-center font-mono text-xs text-muted-foreground">
+                                    {cue.sequence || index + 1}
                                 </div>
-
-                                {/* Timestamps */}
-                                <div className="w-32 shrink-0">
-                                    <div className="text-xs font-mono text-[var(--color-primary)]">{formatTime(cue.start_ms)}</div>
-                                    <div className="text-xs font-mono text-[var(--color-gray-400)]">{formatTime(cue.end_ms)}</div>
+                                <div className="space-y-1 font-mono text-xs">
+                                    <div className="text-primary">{formatTime(cue.start_ms)}</div>
+                                    <div className="text-muted-foreground">{formatTime(cue.end_ms)}</div>
                                 </div>
-
-                                {/* Text */}
-                                <div className="flex-1 min-w-0">
+                                <div className="min-w-0">
                                     {editingCue === cue._id ? (
-                                        <div className="flex items-start gap-2">
-                                            <textarea
+                                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+                                            <Textarea
                                                 value={editText}
-                                                onChange={e => setEditText(e.target.value)}
-                                                className="claude-input flex-1 py-1.5 px-2.5 text-sm rounded-lg min-h-[60px] resize-none"
+                                                onChange={(event) => setEditText(event.target.value)}
+                                                className="min-h-20 flex-1 resize-none text-sm"
                                                 autoFocus
-                                                onClick={e => e.stopPropagation()}
+                                                onClick={(event) => event.stopPropagation()}
                                             />
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); handleSaveCue(cue._id); }}
+                                            <Button
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    void handleSaveCue(cue._id);
+                                                }}
                                                 disabled={saving}
-                                                className="claude-button-primary px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 shrink-0"
+                                                size="sm"
+                                                className="shrink-0"
                                             >
-                                                {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                                                 Save
-                                            </button>
+                                            </Button>
                                         </div>
                                     ) : (
-                                        <p className="text-sm text-[var(--color-gray-800)] leading-relaxed">{cue.text}</p>
+                                        <p className="text-sm leading-6 text-foreground">{cue.text}</p>
                                     )}
                                 </div>
                             </div>
                         ))}
-                    </div>
-                </div>
+                    </CardContent>
+                </Card>
             )}
 
-            {/* Empty State */}
             {!loading && selectedProject && cues.length === 0 && (
-                <div className="text-center py-16 text-[var(--color-gray-400)]">
-                    <AlignLeft className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                    <p className="text-lg font-serif">No subtitles found</p>
-                    <p className="text-sm mt-1">Transcribe this project first to generate subtitles</p>
-                </div>
+                <Card className="border-dashed">
+                    <CardContent className="flex flex-col items-center justify-center px-5 py-16 text-center">
+                        <AlignLeft className="mb-4 h-12 w-12 text-muted-foreground/50" />
+                        <h2 className="text-lg font-semibold">No subtitles found</h2>
+                        <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+                            Transcribe this project first, then return here to edit and export the generated tracks.
+                        </p>
+                    </CardContent>
+                </Card>
             )}
 
-            {!selectedProject && (
-                <div className="text-center py-16 text-[var(--color-gray-400)]">
-                    <FilePlay className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                    <p className="text-lg font-serif">Select a project to start editing</p>
-                </div>
+            {!selectedProject && !loading && (
+                <Card className="border-dashed">
+                    <CardContent className="flex flex-col items-center justify-center px-5 py-16 text-center">
+                        <FilePlay className="mb-4 h-12 w-12 text-muted-foreground/50" />
+                        <h2 className="text-lg font-semibold">Select a project to start editing</h2>
+                        <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+                            Ready projects with subtitle tracks appear in the project selector above.
+                        </p>
+                    </CardContent>
+                </Card>
             )}
         </div>
     );

@@ -3,10 +3,10 @@ import { CheckCircle, AlertTriangle, Clock } from 'lucide-react';
 
 const SERVICES = [
     { name: 'Web Application', status: 'operational', uptime: '99.98%' },
-    { name: 'Transcription API', status: 'operational', uptime: '99.95%' },
+    { name: 'Transcription Service', status: 'operational', uptime: '99.95%' },
     { name: 'Translation Engine', status: 'operational', uptime: '99.97%' },
     { name: 'File Upload / Storage', status: 'operational', uptime: '99.99%' },
-    { name: 'Authentication (Firebase)', status: 'operational', uptime: '99.99%' },
+    { name: 'Secure Sign-in', status: 'operational', uptime: '99.99%' },
     { name: 'Export Service', status: 'operational', uptime: '99.96%' },
 ];
 
@@ -15,21 +15,21 @@ const INCIDENTS = [
         date: 'March 22, 2025',
         title: 'Elevated latency on Translation Engine',
         status: 'resolved',
-        description: 'Between 14:00 and 15:30 UTC, translation requests experienced 2–3× normal latency due to a regional provider issue. All systems restored to normal performance by 15:32 UTC.',
+        description: 'Between 14:00 and 15:30 UTC, translation requests experienced elevated latency due to a regional service issue. All systems restored to normal performance by 15:32 UTC.',
         duration: '1h 32m',
     },
     {
         date: 'March 15, 2025',
-        title: 'Scheduled maintenance — Database migration',
+        title: 'Scheduled maintenance - data upgrade',
         status: 'completed',
-        description: 'Planned 20-minute maintenance window for PostgreSQL schema migration. All services remained available during the migration. No user impact reported.',
+        description: 'Planned 20-minute maintenance window for a product data upgrade. All services remained available during the update. No user impact reported.',
         duration: '18m',
     },
     {
         date: 'March 8, 2025',
         title: 'Intermittent upload failures',
         status: 'resolved',
-        description: 'A subset of users experienced upload failures for files larger than 2 GB. Root cause: temporary S3 presigned URL expiration misconfiguration. Fix deployed at 09:45 UTC.',
+        description: 'A subset of users experienced upload failures for files larger than 2 GB. The issue was corrected at 09:45 UTC.',
         duration: '45m',
     },
 ];
@@ -57,7 +57,7 @@ export default function StatusPage() {
     return (
         <StaticPageLayout
             title="System Status"
-            subtitle="Real-time operational status for all SubtitleAI Pro services."
+            subtitle="Real-time operational status for all Subtitlepro services."
         >
             {/* Overall Status */}
             <section className="mb-10">

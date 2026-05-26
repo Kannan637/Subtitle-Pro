@@ -1,232 +1,258 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import {
+    AlertCircle,
+    ArrowRight,
+    Captions,
+    Check,
+    Music2,
+    Ratio,
+    RefreshCw,
+    Scissors,
+    ShieldCheck,
+    Sparkles,
+    WandSparkles,
+} from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { AlertCircle, Zap, Globe, Shield, Sparkles, Clock, Languages } from 'lucide-react';
+import BrandLogo from '@/components/shared/BrandLogo';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
+import { AUTH_SESSION_RECOVERY_MESSAGE } from '@/lib/api';
+import { clearFirebaseBrowserStorage } from '@/lib/authStorage';
 
-/* ━━━ Feature Carousel Data ━━━ */
-const FEATURES = [
-    {
-        icon: Zap,
-        title: 'Lightning-Fast Transcription',
-        description: 'Process hours of video in minutes. Our AI pipeline is built for speed, so your creative flow never stops.',
-        stat: '60×',
-        statLabel: 'Faster than manual',
-    },
-    {
-        icon: Globe,
-        title: 'Translate to 100+ Languages',
-        description: 'Break language barriers instantly. Professional-grade translations powered by DeepL and GPT-4o preserve tone and nuance.',
-        stat: '100+',
-        statLabel: 'Languages supported',
-    },
-    {
-        icon: Shield,
-        title: 'Broadcast-Grade Accuracy',
-        description: 'Powered by Whisper large-v3 with speaker diarization. Handles accents, domain vocabulary, and background noise effortlessly.',
-        stat: '98%',
-        statLabel: 'Transcription accuracy',
-    },
-    {
-        icon: Clock,
-        title: 'Smart Cue Segmentation',
-        description: 'Every subtitle is optimized for readability — max 7 seconds, 42 characters per line, aligned to natural speech pauses.',
-        stat: '< 3 min',
-        statLabel: 'Avg. turnaround for 1hr video',
-    },
-    {
-        icon: Languages,
-        title: 'No Hallucinations',
-        description: 'Our proprietary filter catches and removes AI hallucinations — repeated phrases, phantom dialogue, and fabricated content.',
-        stat: '0',
-        statLabel: 'Hallucinated phrases',
-    },
-    {
-        icon: Sparkles,
-        title: 'Universal Export',
-        description: 'SRT, VTT, ASS/SSA, TTML, and plain text. Every format your platform, broadcaster, or client requires — in one click.',
-        stat: '6+',
-        statLabel: 'Export formats',
-    },
+const authImages = {
+    main: 'https://images.unsplash.com/photo-1492724441997-5dc865305da7?auto=format&fit=crop&w=1800&q=88',
+    caption: 'https://images.unsplash.com/photo-1611162616475-46b635cb6868?auto=format&fit=crop&w=1000&q=88',
+};
+
+const accessRows = [
+    { icon: Captions, title: 'AI subtitles', body: 'Generate editable subtitle tracks and export SRT, VTT, TXT, or JSON.' },
+    { icon: WandSparkles, title: 'AI captions', body: 'Style social captions with templates, type controls, b-roll, music, and SFX.' },
+    { icon: Scissors, title: 'AI shorts', body: 'Cut long videos into hook-led clips with reframing, captions, preview, and download.' },
 ];
 
+const trustRows = [
+    { icon: ShieldCheck, label: 'Google secured sign-in' },
+    { icon: Ratio, label: 'Aspect and render settings saved' },
+    { icon: Music2, label: 'Timeline media preserved' },
+];
+
+const LEGACY_STALE_SESSION_TEXT = 'your saved sign-in session is stale';
+
+function normalizeAuthErrorMessage(message: string) {
+    return message.toLowerCase().includes(LEGACY_STALE_SESSION_TEXT)
+        ? AUTH_SESSION_RECOVERY_MESSAGE
+        : message;
+}
+
 export default function LoginPage() {
-    const { signInWithGoogle, user } = useAuth();
+    const { signInWithGoogle, signOut, user, loading, authError, clearAuthError } = useAuth();
     const navigate = useNavigate();
     const [error, setError] = useState('');
+    const [notice, setNotice] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [activeFeature, setActiveFeature] = useState(0);
+    const [sessionResetComplete, setSessionResetComplete] = useState(false);
 
-    // Redirect if already logged in
     useEffect(() => {
-        if (user) navigate('/', { replace: true });
-    }, [user, navigate]);
+        if (!loading && user && !sessionResetComplete) navigate('/', { replace: true });
+    }, [user, loading, sessionResetComplete, navigate]);
 
-    // Auto-carousel every 4 seconds
     useEffect(() => {
-        const interval = setInterval(() => {
-            setActiveFeature((prev) => (prev + 1) % FEATURES.length);
-        }, 4000);
-        return () => clearInterval(interval);
-    }, []);
+        if (!user && authError) setError(normalizeAuthErrorMessage(authError));
+    }, [authError, user]);
 
     const handleGoogleSignIn = async () => {
         try {
             setError('');
+            setNotice('');
+            setSessionResetComplete(false);
+            clearAuthError();
             setIsLoading(true);
-            const { isNew } = await signInWithGoogle();
-            if (isNew) {
-                navigate('/onboarding');
-            } else {
-                navigate('/');
-            }
-        } catch (err: any) {
-            setError(err.message || 'Failed to sign in with Google');
+            await signInWithGoogle();
+            navigate('/', { replace: true });
+        } catch (err: unknown) {
+            setError(err instanceof Error && err.message ? err.message : 'Failed to sign in with Google.');
         } finally {
             setIsLoading(false);
         }
     };
 
-    const currentFeature = FEATURES[activeFeature];
+    const resetLocalSession = async () => {
+        setIsLoading(true);
+        setError('');
+        setNotice('');
+        setSessionResetComplete(true);
+        clearAuthError();
+        try {
+            await signOut();
+        } catch {
+            // Continue local cleanup if Firebase cannot finish network sign-out.
+        }
+        try {
+            await clearFirebaseBrowserStorage();
+            setNotice('Local sign-in session cleared. Continue with Google again.');
+        } catch {
+            setNotice('Session reset attempted. Continue with Google again.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     return (
-        <div className="min-h-screen flex bg-[var(--color-surface)] font-sans">
-
-            {/* ─────── LEFT: Feature Carousel ─────── */}
-            <div className="hidden lg:flex lg:w-1/2 xl:w-[55%] bg-[var(--color-gray-900)] relative overflow-hidden flex-col justify-between p-12 xl:p-16">
-
-                {/* Subtle background pattern */}
-                <div className="absolute inset-0 opacity-[0.03]" style={{
-                    backgroundImage: `radial-gradient(circle at 1px 1px, white 1px, transparent 0)`,
-                    backgroundSize: '32px 32px',
-                }} />
-
-                {/* Top: Brand */}
-                <div className="relative z-10">
-                    <Link to="/" className="flex items-center gap-3 group">
-                        <div className="w-9 h-9 rounded-lg bg-[var(--color-primary)] text-white flex items-center justify-center font-serif italic text-lg shadow-lg">
-                            S
-                        </div>
-                        <span className="font-serif font-medium text-xl text-white/90 tracking-tight">SubtitleAI Pro</span>
+        <main className="apple-page apple-no-shadow">
+            <header className="border-b border-border bg-background/78 backdrop-blur-2xl">
+                <div className="apple-wide flex h-16 items-center justify-between">
+                    <Link to="/" className="flex items-center" aria-label="Subtitlepro home">
+                        <BrandLogo variant="wordmark" sizeClassName="h-9 w-[146px]" alt="Subtitlepro" />
                     </Link>
-                </div>
-
-                {/* Middle: Feature Content (animated) */}
-                <div className="relative z-10 flex-1 flex flex-col justify-center max-w-lg">
-                    <div key={activeFeature} className="animate-slide-up">
-                        {/* Stat */}
-                        <div className="flex items-end gap-2 mb-6">
-                            <span className="text-6xl xl:text-7xl font-serif text-[var(--color-primary)] leading-none">
-                                {currentFeature.stat}
-                            </span>
-                            <span className="text-base text-white/50 mb-2">{currentFeature.statLabel}</span>
-                        </div>
-
-                        {/* Icon + Title */}
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
-                                <currentFeature.icon className="w-5 h-5 text-[var(--color-primary)]" />
-                            </div>
-                            <h2 className="text-2xl xl:text-3xl font-serif text-white">{currentFeature.title}</h2>
-                        </div>
-
-                        {/* Description */}
-                        <p className="text-lg text-white/60 leading-relaxed max-w-md">
-                            {currentFeature.description}
-                        </p>
+                    <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="hidden sm:inline-flex">
+                            <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+                            Secure access
+                        </Badge>
+                        <Button variant="ghost" size="sm" asChild>
+                            <Link to="/">Back to site</Link>
+                        </Button>
                     </div>
                 </div>
+            </header>
 
-                {/* Bottom: Carousel Dots */}
-                <div className="relative z-10 flex items-center gap-2">
-                    {FEATURES.map((_, i) => (
-                        <button
-                            key={i}
-                            onClick={() => setActiveFeature(i)}
-                            className={`h-1.5 rounded-full transition-all duration-500 ${i === activeFeature
-                                ? 'w-8 bg-[var(--color-primary)]'
-                                : 'w-1.5 bg-white/20 hover:bg-white/40'
-                                }`}
-                            aria-label={`Feature ${i + 1}`}
-                        />
-                    ))}
-                </div>
-            </div>
-
-            {/* ─────── RIGHT: Google Sign-In ─────── */}
-            <div className="flex-1 flex items-center justify-center p-6 sm:p-12">
-                <div className="w-full max-w-md">
-
-                    {/* Mobile Brand (visible on small screens) */}
-                    <div className="lg:hidden text-center mb-10">
-                        <Link to="/" className="inline-flex items-center gap-3 group">
-                            <div className="w-10 h-10 rounded-xl bg-[var(--color-primary)] text-white flex items-center justify-center font-serif italic text-2xl shadow-sm">
-                                S
-                            </div>
-                        </Link>
-                    </div>
-
-                    {/* Heading */}
-                    <div className="text-center lg:text-left mb-10">
-                        <h1 className="text-3xl xl:text-4xl font-serif text-[var(--color-gray-900)] tracking-tight mb-3">
-                            Welcome to SubtitleAI Pro
-                        </h1>
-                        <p className="text-[var(--color-gray-600)] text-lg">
-                            Sign in to start creating professional subtitles in 100+ languages.
-                        </p>
-                    </div>
-
-                    {/* Error Message */}
-                    {error && (
-                        <div className="mb-6 bg-[var(--color-danger-light)] border border-[var(--color-danger)]/20 p-4 rounded-xl flex items-start gap-3">
-                            <AlertCircle className="w-5 h-5 text-[var(--color-danger)] shrink-0 mt-0.5" />
-                            <p className="text-sm text-[var(--color-danger)]">{error}</p>
-                        </div>
-                    )}
-
-                    {/* Google Sign-In Button */}
-                    <button
-                        onClick={handleGoogleSignIn}
-                        disabled={isLoading}
-                        className="w-full flex items-center justify-center gap-3 py-4 px-6 rounded-xl text-base font-medium bg-white border border-[var(--color-gray-200)] text-[var(--color-gray-800)] hover:bg-[var(--color-gray-50)] hover:border-[var(--color-gray-300)] hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm cursor-pointer"
-                    >
-                        <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
-                            <path
-                                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                                fill="#4285F4"
-                            />
-                            <path
-                                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                                fill="#34A853"
-                            />
-                            <path
-                                d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.84z"
-                                fill="#FBBC05"
-                            />
-                            <path
-                                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                                fill="#EA4335"
-                            />
-                        </svg>
-                        {isLoading ? 'Signing in...' : 'Continue with Google'}
-                    </button>
-
-                    {/* Terms */}
-                    <p className="mt-8 text-center text-xs text-[var(--color-gray-500)] leading-relaxed">
-                        By continuing, you agree to SubtitleAI Pro's{' '}
-                        <Link to="/terms" className="underline underline-offset-2 hover:text-[var(--color-gray-700)]">Terms of Service</Link>{' '}
-                        and{' '}
-                        <Link to="/privacy" className="underline underline-offset-2 hover:text-[var(--color-gray-700)]">Privacy Policy</Link>.
+            <section className="apple-wide grid min-h-[calc(100vh-4rem)] items-center gap-8 py-8 lg:grid-cols-[0.86fr_1.14fr] lg:py-10">
+                <div className="max-w-xl">
+                    <span className="apple-kicker">
+                        <Sparkles className="h-4 w-4 text-primary" />
+                        Account access
+                    </span>
+                    <h1 className="apple-title mt-5 max-w-[11ch]">Open your AI video workspace.</h1>
+                    <p className="apple-subtitle mt-6">
+                        Sign in to manage captions, subtitles, shorts, credits, billing, team access, and render-ready video projects.
                     </p>
 
-                    {/* Free Minutes Badge */}
-                    <div className="mt-10 flex items-center justify-center gap-3 py-4 px-5 rounded-xl bg-[var(--color-primary-subtle)] border border-[var(--color-primary)]/10">
-                        <Sparkles className="w-5 h-5 text-[var(--color-primary)] shrink-0" />
-                        <p className="text-sm text-[var(--color-gray-700)]">
-                            <strong className="text-[var(--color-gray-900)]">60 free minutes</strong> included with every new account. No credit card required.
-                        </p>
+                    <Card className="mt-8">
+                        <CardHeader>
+                            <CardTitle className="text-2xl">Continue with Google</CardTitle>
+                            <CardDescription>
+                                Subtitlepro keeps projects, templates, credits, and render history connected to your account.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-5">
+                            {error && (
+                                <Alert variant="destructive" className="grid-cols-[20px_1fr]">
+                                    <AlertCircle className="mt-0.5 h-4 w-4" />
+                                    <AlertTitle>Session needs attention</AlertTitle>
+                                    <AlertDescription className="mt-1">
+                                        {error}
+                                        <Button
+                                            type="button"
+                                            variant="link"
+                                            size="sm"
+                                            className="mt-2 h-auto p-0 text-destructive"
+                                            disabled={isLoading}
+                                            onClick={() => void resetLocalSession()}
+                                        >
+                                            <RefreshCw className="h-3.5 w-3.5" />
+                                            Clear local session
+                                        </Button>
+                                    </AlertDescription>
+                                </Alert>
+                            )}
+
+                            {notice && (
+                                <Alert variant="success" className="grid-cols-[20px_1fr]">
+                                    <Check className="mt-0.5 h-4 w-4" />
+                                    <AlertTitle>Session reset</AlertTitle>
+                                    <AlertDescription>{notice}</AlertDescription>
+                                </Alert>
+                            )}
+
+                            <Button
+                                type="button"
+                                size="lg"
+                                className="w-full justify-between px-5"
+                                disabled={isLoading}
+                                onClick={handleGoogleSignIn}
+                            >
+                                <span className="flex items-center gap-3">
+                                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white">
+                                        <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
+                                            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+                                            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+                                            <path d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.84z" fill="#FBBC05" />
+                                            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335" />
+                                        </svg>
+                                    </span>
+                                    {isLoading ? 'Signing in' : 'Continue with Google'}
+                                </span>
+                                <ArrowRight className="h-4 w-4" />
+                            </Button>
+
+                            <p className="text-xs font-medium leading-5 text-muted-foreground">
+                                By continuing, you agree to Subtitlepro&apos;s{' '}
+                                <Link to="/terms" className="font-semibold text-foreground underline underline-offset-4">Terms</Link>
+                                {' '}and{' '}
+                                <Link to="/privacy" className="font-semibold text-foreground underline underline-offset-4">Privacy Policy</Link>.
+                            </p>
+                        </CardContent>
+                    </Card>
+                </div>
+
+                <div className="grid gap-4 lg:grid-rows-[1fr_auto]">
+                    <div className="apple-material relative min-h-[480px] overflow-hidden rounded-[2rem] p-2">
+                        <div className="relative h-full min-h-[460px] overflow-hidden rounded-[1.55rem]">
+                            <img src={authImages.main} alt="AI video editing workspace" className="absolute inset-0 h-full w-full object-cover" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/18 to-black/10" />
+                            <div className="absolute left-5 top-5 flex flex-wrap gap-2">
+                                <Badge className="bg-background text-foreground hover:bg-background">Studio access</Badge>
+                                <Badge variant="outline" className="border-white/35 bg-white/10 text-white">Session protected</Badge>
+                            </div>
+                            <div className="absolute bottom-5 left-5 right-5">
+                                <p className="max-w-xl text-4xl font-semibold leading-none tracking-[-0.04em] text-white">
+                                    Projects stay ready for captions, shorts, audio, and export.
+                                </p>
+                                <div className="mt-5 grid gap-2 sm:grid-cols-3">
+                                    {trustRows.map((row) => (
+                                        <div key={row.label} className="rounded-[1rem] border border-white/24 bg-white/10 p-3 text-white backdrop-blur">
+                                            <row.icon className="mb-2 h-4 w-4 text-white" />
+                                            <p className="text-xs font-semibold leading-5">{row.label}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-[0.7fr_1fr]">
+                        <div className="apple-material overflow-hidden rounded-[1.5rem] p-2">
+                            <img src={authImages.caption} alt="Caption design preview" className="h-full min-h-64 w-full rounded-[1.15rem] object-cover" />
+                        </div>
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="text-xl">What opens after sign in</CardTitle>
+                                <CardDescription>One account unlocks every current AI tool and keeps timeline data in one place.</CardDescription>
+                            </CardHeader>
+                            <CardContent className="p-0">
+                                {accessRows.map((row, index) => (
+                                    <div key={row.title}>
+                                        <div className="apple-list-row flex items-start gap-3">
+                                            <span className="apple-icon-cell">
+                                                <row.icon className="h-4 w-4" />
+                                            </span>
+                                            <div>
+                                                <p className="text-sm font-semibold">{row.title}</p>
+                                                <p className="mt-1 text-xs font-medium leading-5 text-muted-foreground">{row.body}</p>
+                                            </div>
+                                        </div>
+                                        {index < accessRows.length - 1 && <Separator />}
+                                    </div>
+                                ))}
+                            </CardContent>
+                        </Card>
                     </div>
                 </div>
-            </div>
-        </div>
+            </section>
+        </main>
     );
 }

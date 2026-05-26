@@ -1,13 +1,45 @@
-"""User profile and onboarding endpoints."""
+"""User profile and onboarding endpoints.
+
+ARCH-08 fix: All endpoints now use Depends(get_database) instead of calling
+get_database() directly — consistent async DI pattern, enables proper mocking.
+"""
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional
 from datetime import datetime, timezone
 
 from app.core.security import get_current_user
 from app.db.database import get_database
 
 router = APIRouter()
+
+PLAN_BASE_CREDITS = {
+    "free": 60,
+    "creator": 300,
+    "studio": 1500,
+}
+
+
+def _normalize_legacy_credits(user: Dict[str, Any]) -> tuple[int, bool]:
+    raw_credits = user.get("credits_remaining", 0)
+    try:
+        credits = int(raw_credits or 0)
+    except Exception:
+        credits = 0
+    if credits < 0:
+        credits = 0
+
+    if user.get("credits_unit") == "credits":
+        return credits, False
+
+    plan = str(user.get("plan", "free") or "free")
+    expected = PLAN_BASE_CREDITS.get(plan)
+    if expected is None:
+        return credits, False
+
+    if credits > expected * 2:
+        return max(0, int(round(credits / 60))), True
+    return credits, False
 
 
 class OnboardingData(BaseModel):
@@ -21,12 +53,12 @@ class OnboardingData(BaseModel):
 @router.get("/me")
 async def get_user_profile(
     current_user: Dict[str, Any] = Depends(get_current_user),
+    db=Depends(get_database),  # ARCH-08: use DI, not direct singleton call
 ) -> Dict[str, Any]:
     """Get the current user's profile. Creates a new record if first-time login.
 
     Returns `is_new_user: true` if the user was just created (for onboarding flow).
     """
-    db = get_database()
     uid = current_user["uid"]
     email = current_user["email"]
     name = current_user.get("name", "")
@@ -42,13 +74,22 @@ async def get_user_profile(
     user = await db.users.find_one({"uid": uid})
 
     if user:
+        normalized_credits, converted = _normalize_legacy_credits(user)
+        if converted:
+            await db.users.update_one(
+                {"uid": uid},
+                {"$set": {"credits_remaining": normalized_credits, "credits_unit": "credits"}},
+            )
+            user["credits_remaining"] = normalized_credits
+            user["credits_unit"] = "credits"
+
         return {
             "uid": user["uid"],
             "email": user["email"],
             "name": user.get("name", ""),
             "picture": user.get("picture", ""),
             "plan": user.get("plan", "free"),
-            "credits_remaining": user.get("credits_remaining", 60),
+            "credits_remaining": int(user.get("credits_remaining", 60) or 0),
             "onboarding_completed": user.get("onboarding_completed", False),
             "is_new_user": False,
         }
@@ -61,6 +102,7 @@ async def get_user_profile(
         "picture": picture,
         "plan": "free",
         "credits_remaining": 60,
+        "credits_unit": "credits",
         "onboarding_completed": False,
         "onboarding_data": None,
         "created_at": datetime.now(timezone.utc),
@@ -85,9 +127,9 @@ async def get_user_profile(
 async def complete_onboarding(
     data: OnboardingData,
     current_user: Dict[str, Any] = Depends(get_current_user),
+    db=Depends(get_database),  # ARCH-08: use DI, not direct singleton call
 ) -> Dict[str, Any]:
     """Save onboarding form data and mark onboarding as completed."""
-    db = get_database()
     uid = current_user["uid"]
 
     result = await db.users.update_one(

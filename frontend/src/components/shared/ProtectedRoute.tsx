@@ -1,9 +1,16 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useIsMobileViewport } from '@/hooks/useIsMobileViewport';
+import DesktopOnlyNotice from '@/components/shared/DesktopOnlyNotice';
 
 export default function ProtectedRoute() {
     const { user, loading } = useAuth();
     const location = useLocation();
+    const isMobile = useIsMobileViewport();
+
+    if (isMobile) {
+        return <DesktopOnlyNotice />;
+    }
 
     if (loading) {
         return (

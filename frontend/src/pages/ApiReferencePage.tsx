@@ -5,7 +5,7 @@ const ENDPOINTS = [
     {
         category: 'Authentication',
         endpoints: [
-            { method: 'POST', path: '/api/auth/verify', description: 'Verify a Firebase ID token and return user profile', auth: false },
+            { method: 'POST', path: '/api/auth/verify', description: 'Verify a secure access token and return user profile', auth: false },
         ],
     },
     {
@@ -20,7 +20,7 @@ const ENDPOINTS = [
     {
         category: 'Uploads',
         endpoints: [
-            { method: 'POST', path: '/api/upload/presign', description: 'Generate a presigned URL for direct file upload to S3', auth: true },
+            { method: 'POST', path: '/api/upload/presign', description: 'Generate a secure direct upload URL', auth: true },
             { method: 'POST', path: '/api/upload/youtube', description: 'Import a video from a YouTube URL', auth: true },
         ],
     },
@@ -57,8 +57,8 @@ const METHOD_COLORS: Record<string, string> = {
 export default function ApiReferencePage() {
     return (
         <StaticPageLayout
-            title="API Reference"
-            subtitle="Integrate SubtitleAI Pro into your own applications and workflows."
+            title="Developer Reference"
+            subtitle="Integrate Subtitlepro into your own applications and workflows."
         >
             {/* Base URL */}
             <section className="mb-10">
@@ -74,12 +74,12 @@ export default function ApiReferencePage() {
             <section className="mb-10">
                 <h2 className="text-xl font-serif text-[var(--color-gray-900)] mb-4">Authentication</h2>
                 <p className="text-[var(--color-gray-600)] mb-4 leading-relaxed">
-                    All API requests (except <code className="text-sm bg-[var(--color-gray-100)] px-1.5 py-0.5 rounded text-[var(--color-gray-800)]">/auth/verify</code>) must include a valid Firebase ID token in the <code className="text-sm bg-[var(--color-gray-100)] px-1.5 py-0.5 rounded text-[var(--color-gray-800)]">Authorization</code> header.
+                    All API requests (except <code className="text-sm bg-[var(--color-gray-100)] px-1.5 py-0.5 rounded text-[var(--color-gray-800)]">/auth/verify</code>) must include a valid secure access token in the <code className="text-sm bg-[var(--color-gray-100)] px-1.5 py-0.5 rounded text-[var(--color-gray-800)]">Authorization</code> header.
                 </p>
                 <div className="bg-[var(--color-surface-secondary)] rounded-xl p-5 border border-[var(--color-gray-200)] font-mono text-sm overflow-x-auto">
                     <pre className="text-[var(--color-gray-700)]">
                         {`curl -X GET https://api.subtitleai.pro/v1/projects \\
-  -H "Authorization: Bearer <FIREBASE_ID_TOKEN>" \\
+  -H "Authorization: Bearer <ACCESS_TOKEN>" \\
   -H "Content-Type: application/json"`}
                     </pre>
                 </div>

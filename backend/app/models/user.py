@@ -53,7 +53,7 @@ class UserDB(BaseModel):
     name: str = ""
     picture: str = ""
     plan: str = PlanType.FREE.value
-    credits_remaining: int = 3600                   # seconds
+    credits_remaining: int = 60                     # credits
     is_verified: bool = False
     is_active: bool = True
     email_verified: bool = False
@@ -71,7 +71,7 @@ class UserResponse(BaseModel):
     name: str = ""
     picture: str = ""
     plan: str = "free"
-    credits_remaining: int = 3600
+    credits_remaining: int = 60
     is_active: bool = True
     email_verified: bool = False
     onboarding_completed: bool = False
@@ -211,7 +211,7 @@ class CreditLedgerDB(BaseModel):
     id: Optional[str] = Field(None, alias="_id")
     user_id: str
     type: str                                       # "credit" | "debit"
-    amount_sec: int                                 # seconds consumed/added
+    amount_sec: int                                 # legacy key: credits consumed/added
     reference: Optional[str] = None                 # job_id, stripe invoice, etc.
     note: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)

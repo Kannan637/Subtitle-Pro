@@ -1,60 +1,79 @@
-import { HelpCircle, MessageSquare, BookOpen, Mail, ExternalLink } from 'lucide-react';
+import { BookOpen, ExternalLink, HelpCircle, Mail, MessageSquare } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
+
+const faqs = [
+    ['Supported formats', 'MP4, MOV, MKV, AVI, WebM, MP3, WAV, FLAC, and common browser-safe media formats.'],
+    ['Credits', 'Credits are shared across subtitles, captions, shorts, b-roll, music, SFX, reframing, and exports.'],
+    ['Exports', 'Subtitle workflows export SRT, VTT, text, and JSON. Caption and shorts workflows render MP4.'],
+    ['Teams', 'Team collaboration is planned around Studio and Enterprise workspaces.'],
+];
+
+const quickLinks = [
+    { icon: BookOpen, label: 'Documentation', href: '/docs' },
+    { icon: MessageSquare, label: 'Product support', href: 'mailto:support@subtitleai.pro' },
+    { icon: Mail, label: 'Billing help', href: 'mailto:support@subtitleai.pro?subject=Subtitlepro%20billing%20help' },
+];
 
 export default function HelpPage() {
-    const faqs = [
-        { q: 'What file formats are supported?', a: 'We support MP4, MOV, MKV, AVI, WebM, MP3, WAV, FLAC, and more.' },
-        { q: 'How accurate is the transcription?', a: 'Our Whisper Large V3 model achieves 98.5% accuracy on most content. It handles accents, background noise, and multiple speakers.' },
-        { q: 'How many languages are supported?', a: 'We support 100+ languages for transcription and translation. The exact number depends on your plan tier.' },
-        { q: 'What export formats are available?', a: 'SRT, VTT, ASS, JSON, and plain text. Studio plans also support burned-in subtitle video exports.' },
-        { q: 'How are credits calculated?', a: 'Credits are consumed per minute of media processed. A 10-minute video uses 10 minutes of credit for transcription.' },
-        { q: 'Can I collaborate with my team?', a: 'Yes! Team collaboration is available on Studio and Enterprise plans. Invite members and manage permissions.' },
-    ];
-
     return (
-        <div className="max-w-4xl mx-auto">
-            <div className="mb-8">
-                <h1 className="text-2xl font-serif text-[var(--color-gray-900)] mb-2">Help & Support</h1>
-                <p className="text-[var(--color-gray-500)]">Find answers, get help, and contact our team.</p>
-            </div>
+        <div className="mx-auto max-w-5xl space-y-4 p-4 sm:p-6 lg:p-8">
+            <Card>
+                <CardContent className="p-5 sm:p-6">
+                    <Badge variant="secondary" className="mb-3">
+                        <HelpCircle className="h-3.5 w-3.5" />
+                        Help
+                    </Badge>
+                    <h1 className="text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">Support</h1>
+                    <p className="mt-2 max-w-xl text-sm font-medium text-muted-foreground">
+                        Quick routes for product, billing, and workspace questions.
+                    </p>
+                </CardContent>
+            </Card>
 
-            {/* Quick Links */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-                {[
-                    { icon: BookOpen, label: 'Documentation', desc: 'Guides and tutorials', href: '/docs' },
-                    { icon: MessageSquare, label: 'Community', desc: 'Join the discussion', href: '#' },
-                    { icon: Mail, label: 'Contact Support', desc: 'Email our team', href: 'mailto:support@subtitleai.pro' },
-                ].map((link) => (
-                    <a key={link.label} href={link.href} className="bg-white border border-[var(--color-gray-200)] rounded-2xl p-5 shadow-sm hover:border-[var(--color-primary-light)] hover:shadow-md transition-all group">
-                        <link.icon className="w-6 h-6 text-[var(--color-primary)] mb-3" />
-                        <h3 className="text-sm font-medium text-[var(--color-gray-900)] mb-1 flex items-center gap-1 group-hover:text-[var(--color-primary)]">
-                            {link.label}
-                            <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                        </h3>
-                        <p className="text-xs text-[var(--color-gray-500)]">{link.desc}</p>
-                    </a>
+            <section className="grid gap-3 sm:grid-cols-3">
+                {quickLinks.map((link) => (
+                    <Card key={link.label} className="transition-colors hover:border-primary/35">
+                        <CardContent className="flex items-center gap-3 p-4">
+                            <span className="apple-icon-cell">
+                                <link.icon className="h-5 w-5" />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold">{link.label}</p>
+                                <Button asChild variant="link" className="h-auto p-0 text-xs">
+                                    <a href={link.href}>
+                                        Open
+                                        <ExternalLink className="h-3.5 w-3.5" />
+                                    </a>
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
                 ))}
-            </div>
+            </section>
 
-            {/* FAQ */}
-            <div className="bg-white border border-[var(--color-gray-200)] rounded-2xl shadow-sm overflow-hidden">
-                <div className="p-5 border-b border-[var(--color-gray-200)]">
-                    <h3 className="text-sm font-semibold text-[var(--color-gray-900)] flex items-center gap-2">
-                        <HelpCircle className="w-4 h-4 text-[var(--color-primary)]" />
-                        Frequently Asked Questions
-                    </h3>
-                </div>
-                <div className="divide-y divide-[var(--color-gray-100)]">
-                    {faqs.map((item) => (
-                        <details key={item.q} className="group">
-                            <summary className="px-5 py-4 cursor-pointer text-sm font-medium text-[var(--color-gray-900)] hover:bg-[var(--color-surface-secondary)] transition-colors list-none flex items-center justify-between">
-                                {item.q}
-                                <span className="text-[var(--color-gray-400)] group-open:rotate-180 transition-transform text-lg">▾</span>
-                            </summary>
-                            <div className="px-5 pb-4 text-sm text-[var(--color-gray-600)] leading-relaxed">{item.a}</div>
-                        </details>
+            <Card>
+                <CardHeader>
+                    <CardTitle>FAQ</CardTitle>
+                    <CardDescription>Short answers for common workspace questions.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                    {faqs.map(([question, answer], index) => (
+                        <div key={question}>
+                            <details className="group">
+                                <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-5 py-3 text-sm font-semibold hover:bg-muted/60">
+                                    {question}
+                                    <span className="text-muted-foreground transition-transform group-open:rotate-180">⌄</span>
+                                </summary>
+                                <p className="px-5 pb-4 text-sm leading-6 text-muted-foreground">{answer}</p>
+                            </details>
+                            {index < faqs.length - 1 && <Separator />}
+                        </div>
                     ))}
-                </div>
-            </div>
+                </CardContent>
+            </Card>
         </div>
     );
 }

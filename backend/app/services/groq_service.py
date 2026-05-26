@@ -35,6 +35,73 @@ def get_groq_client() -> Groq:
 # ---------------------------------------------------------------------------
 # Transcription (Whisper)
 # ---------------------------------------------------------------------------
+def _probe_duration_seconds(file_path: str) -> float:
+    """Best-effort media duration probe used when the API omits duration."""
+    cmd = [
+        "ffprobe",
+        "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        file_path,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15, check=True)
+        return max(0.0, float(result.stdout.strip()))
+    except Exception:
+        return 0.0
+
+
+def _field(obj: Any, name: str, default: Any = None) -> Any:
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
+
+
+def _has_field(obj: Any, name: str) -> bool:
+    if isinstance(obj, dict):
+        return name in obj
+    return hasattr(obj, name)
+
+
+def _coerce_word_items(raw_words: Any) -> List[Dict[str, Any]]:
+    if not isinstance(raw_words, list):
+        return []
+
+    words: List[Dict[str, Any]] = []
+    for item in raw_words:
+        token = str(_field(item, "word", _field(item, "text", "")) or "").strip()
+        if not token:
+            continue
+        try:
+            start = float(_field(item, "start", _field(item, "start_ms", 0)) or 0)
+            end = float(_field(item, "end", _field(item, "end_ms", 0)) or 0)
+        except Exception:
+            continue
+
+        if _has_field(item, "start_ms"):
+            start = start / 1000.0
+        if _has_field(item, "end_ms"):
+            end = end / 1000.0
+        if end <= start:
+            continue
+        words.append({"word": token, "start": start, "end": end})
+
+    return words
+
+
+def _words_for_segment(words: List[Dict[str, Any]], start: float, end: float) -> List[Dict[str, Any]]:
+    if not words:
+        return []
+    segment_words: List[Dict[str, Any]] = []
+    for word in words:
+        word_start = float(word.get("start", 0) or 0)
+        word_end = float(word.get("end", 0) or 0)
+        midpoint = word_start + ((word_end - word_start) / 2.0)
+        if start <= midpoint <= end or (word_start < end and word_end > start):
+            segment_words.append(word)
+    return segment_words
+
+
 def transcribe_audio(
     file_path: str,
     language: Optional[str] = None,
@@ -100,7 +167,19 @@ def transcribe_audio(
             if language and language != "auto":
                 kwargs["language"] = language
 
-            transcription = client.audio.transcriptions.create(**kwargs)
+            try:
+                transcription = client.audio.transcriptions.create(
+                    **{**kwargs, "timestamp_granularities": ["segment", "word"]}
+                )
+            except Exception as exc:
+                message = str(exc).lower()
+                if not any(
+                    token in message
+                    for token in ("timestamp", "granularit", "unexpected keyword", "extra_forbidden", "unknown field", "unrecognized")
+                ):
+                    raise
+                logger.info("Groq word timestamp request was not accepted; retrying segment timestamps only.")
+                transcription = client.audio.transcriptions.create(**kwargs)
     finally:
         # Cleanup temporary compressed file
         if temp_file_path and os.path.exists(temp_file_path):
@@ -110,18 +189,24 @@ def transcribe_audio(
                 logger.warning(f"Failed to remove temp file {temp_file_path}: {e}")
 
     # Parse verbose_json response
+    duration = float(getattr(transcription, "duration", 0) or 0)
+    if duration <= 0:
+        duration = _probe_duration_seconds(file_path)
+
     result: Dict[str, Any] = {
         "text": transcription.text,
         "language": getattr(transcription, "language", language or "en"),
-        "duration": getattr(transcription, "duration", 0),
+        "duration": duration,
         "segments": [],
     }
 
-    # Extract segments with timestamps
+    # Extract Whisper segments with timestamps. Subtitle chunking happens in
+    # subtitle_service so we preserve phrase context instead of emitting one cue
+    # per interpolated word.
+    top_level_words = _coerce_word_items(_field(transcription, "words", []))
     raw_segments = getattr(transcription, "segments", [])
     if isinstance(raw_segments, list):
         for seg in raw_segments:
-            # Handle both dicts and objects just in case
             if isinstance(seg, dict):
                 start = seg.get("start", 0)
                 end = seg.get("end", 0)
@@ -130,12 +215,31 @@ def transcribe_audio(
                 start = getattr(seg, "start", 0)
                 end = getattr(seg, "end", 0)
                 text = getattr(seg, "text", "").strip()
-                
-            result["segments"].append({
-                "start": start,
-                "end": end,
+            if not text:
+                continue
+
+            start_s = float(start or 0)
+            end_s = float(end or 0)
+            words = _coerce_word_items(_field(seg, "words", []))
+            if not words:
+                words = _words_for_segment(top_level_words, start_s, end_s)
+
+            segment: Dict[str, Any] = {
+                "start": float(start or 0),
+                "end": float(end or 0),
                 "text": text,
-            })
+                "confidence": seg.get("avg_logprob") if isinstance(seg, dict) else getattr(seg, "avg_logprob", None),
+            }
+            if words:
+                segment["words"] = words
+            result["segments"].append(segment)
+
+    if not result["segments"] and result["text"]:
+        result["segments"].append({
+            "start": 0.0,
+            "end": duration or max(1.0, len(result["text"].split()) * 0.35),
+            "text": result["text"].strip(),
+        })
 
     logger.info(
         f"Transcription complete: {len(result['segments'])} segments, "

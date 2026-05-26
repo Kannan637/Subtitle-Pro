@@ -18,5 +18,21 @@ backend/.pytest_cache/
 backend/.env
 backend/.env.local
 backend/.prisma/
+backend/tmp/
+
+# SEC-01: NEVER commit credentials or service account files
 backend/firebase-service-account.json
+*.json.bak
+*service-account*.json
+*credentials*.json
+
+# Upload artifacts — files are stored locally, not in git
+backend/uploads/
+
+# Python cache
 *.pyc
+**/__pycache__/
+*.pyo
+
+# Logs
+*.log

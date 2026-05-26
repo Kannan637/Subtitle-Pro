@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import confetti from 'canvas-confetti';
+import BrandLogo from '@/components/shared/BrandLogo';
 import {
     ArrowRight, Sparkles, Mic, Globe, FileText,
     Search, Share2, UserPlus, Tv, BookOpen, MoreHorizontal,
@@ -166,9 +167,7 @@ export default function OnboardingPage() {
             <div className="w-full max-w-2xl">
                 {/* Header */}
                 <div className="text-center mb-8 sm:mb-10">
-                    <div className="w-10 h-10 rounded-xl bg-[var(--color-primary)] text-white flex items-center justify-center font-serif italic text-lg shadow-sm mx-auto mb-5">
-                        S
-                    </div>
+                    <BrandLogo sizeClassName="w-10 h-10" className="shadow-sm mx-auto mb-5" />
                     <h1 className="text-2xl sm:text-3xl font-serif text-[var(--color-gray-900)] mb-2 tracking-tight">
                         Tell us about yourself
                     </h1>

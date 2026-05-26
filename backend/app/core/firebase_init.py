@@ -4,6 +4,7 @@ from firebase_admin import credentials
 from app.core.config import settings
 import logging
 import os
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +21,15 @@ def init_firebase() -> None:
         logger.info("Firebase Admin already initialized.")
         return
 
-    cred_path = settings.firebase_credentials_path
+    configured_path = (settings.firebase_credentials_path or "").strip()
+    backend_dir = Path(__file__).resolve().parents[2]
+    cred_path = Path(configured_path) if configured_path else None
+    if cred_path and not cred_path.is_absolute():
+        cwd_candidate = Path.cwd() / cred_path
+        backend_candidate = backend_dir / cred_path
+        cred_path = cwd_candidate if cwd_candidate.is_file() else backend_candidate
 
-    if cred_path and os.path.isfile(cred_path):
+    if cred_path and cred_path.is_file():
         cred = credentials.Certificate(cred_path)
         firebase_admin.initialize_app(cred)
         logger.info(f"Firebase Admin initialized with service account: {cred_path}")

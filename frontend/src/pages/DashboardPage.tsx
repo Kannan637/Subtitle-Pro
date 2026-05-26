@@ -1,615 +1,957 @@
-import { useState, useEffect, useRef } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { projectsApi, mediaApi } from '@/lib/api';
-import type { Project } from '@/lib/api';
+import { useEffect, useMemo, useRef, useState, type ElementType, type ReactNode } from 'react';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-    LogOut, Plus, Search, Sparkles, FilePlay, MessageSquare, Menu, X, FileVideo2,
-    UploadCloud, Loader2, LayoutDashboard, FolderOpen, Globe, CreditCard,
-    HelpCircle, BookOpen, Zap, BarChart3, Users, Crown, AlertTriangle, ChevronRight, MoreHorizontal
+    AlertTriangle,
+    BarChart3,
+    BookOpen,
+    CalendarClock,
+    Captions,
+    CheckCircle2,
+    Command,
+    CreditCard,
+    Crown,
+    FileVideo2,
+    Gauge,
+    Gift,
+    HelpCircle,
+    LayoutDashboard,
+    Loader2,
+    LogOut,
+    Menu,
+    MessageCircle,
+    Monitor,
+    Moon,
+    MoreHorizontal,
+    Palette,
+    Plus,
+    RotateCcw,
+    Scissors,
+    Search,
+    Settings,
+    ShieldCheck,
+    Sparkles,
+    Sun,
+    UploadCloud,
+    UserPlus,
+    Users,
+    WandSparkles,
 } from 'lucide-react';
-import { useNavigate, Link, useLocation, Outlet } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
+import { useAppSettings, type ThemeMode } from '@/contexts/AppSettingsContext';
+import {
+    AUTH_SESSION_REAUTH_MESSAGE,
+    getApiErrorMessage,
+    getCurrentAuthToken,
+    isAuthSessionError,
+    mediaApi,
+    projectsApi,
+    type Project,
+} from '@/lib/api';
+import { getProjectOpenPath, getProjectTypeLabel } from '@/lib/projectRoutes';
+import BrandLogo from '@/components/shared/BrandLogo';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Progress } from '@/components/ui/progress';
+import { Separator } from '@/components/ui/separator';
+import {
+    Sheet,
+    SheetContent,
+    SheetDescription,
+    SheetHeader,
+    SheetTitle,
+} from '@/components/ui/sheet';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils';
 
-// ─── Sign-Out Confirmation Modal ─────────────────────────────────────────────
-function SignOutModal({ isOpen, onConfirm, onCancel }: { isOpen: boolean; onConfirm: () => void; onCancel: () => void }) {
-    if (!isOpen) return null;
+type NavItemConfig = {
+    icon: ElementType;
+    label: string;
+    to: string;
+    active: boolean;
+    badge?: string;
+};
+
+const aiToolCards = [
+    {
+        title: 'AI Video Subtitle',
+        description: 'Transcribe media, manage subtitle tracks, translate, and export subtitle files.',
+        to: '/dashboard/transcribe',
+        action: 'Start subtitles',
+        icon: Captions,
+        meta: 'SRT, VTT, TXT, JSON',
+    },
+    {
+        title: 'AI Video Caption',
+        description: 'Generate styled caption videos with templates, b-roll, music, SFX, transitions, and MP4 export.',
+        to: '/dashboard/translate',
+        action: 'Open caption studio',
+        icon: WandSparkles,
+        meta: 'Timeline + templates',
+    },
+    {
+        title: 'Long to Viral',
+        description: 'Create hook-led shorts from long videos or YouTube imports with reframing and captions.',
+        to: '/dashboard/long-to-shorts',
+        action: 'Create shorts',
+        icon: Scissors,
+        meta: '9:16 + downloads',
+    },
+];
+
+function initials(name?: string | null, email?: string | null): string {
+    const source = name || email || 'Subtitlepro User';
+    return source
+        .split(/\s|@/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part.charAt(0).toUpperCase())
+        .join('') || 'SU';
+}
+
+function formatDate(dateStr: string) {
+    const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) return 'recently';
+    const diffMs = Date.now() - date.getTime();
+    if (diffMs < 86_400_000) return 'today';
+    const diffDays = Math.floor(diffMs / 86_400_000);
+    if (diffDays === 1) return 'yesterday';
+    if (diffDays < 7) return `${diffDays} days ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function formatFileSize(size: number) {
+    if (!size) return '0 MB';
+    const mb = size / (1024 * 1024);
+    if (mb < 1) return `${Math.max(1, Math.round(size / 1024))} KB`;
+    return `${mb.toFixed(mb >= 100 ? 0 : 1)} MB`;
+}
+
+function projectStatusVariant(status?: string): 'default' | 'secondary' | 'success' | 'warning' | 'destructive' {
+    const normalized = (status || '').toLowerCase();
+    if (normalized === 'ready' || normalized === 'complete') return 'success';
+    if (normalized === 'processing' || normalized === 'queued') return 'warning';
+    if (normalized === 'error' || normalized === 'failed') return 'destructive';
+    return 'secondary';
+}
+
+function NavButton({ item, onClick }: { item: NavItemConfig; onClick?: () => void }) {
+    const Icon = item.icon;
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                <div className="p-6 text-center">
-                    <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
-                        <AlertTriangle className="w-6 h-6 text-red-500" />
-                    </div>
-                    <h3 className="font-serif text-lg text-[var(--color-gray-900)] mb-2">Sign out?</h3>
-                    <p className="text-sm text-[var(--color-gray-500)] mb-6">
-                        Are you sure you want to sign out? Any unsaved changes will be lost.
-                    </p>
-                    <div className="flex gap-3">
-                        <button
-                            onClick={onCancel}
-                            className="flex-1 px-4 py-2.5 text-sm font-medium text-[var(--color-gray-700)] bg-[var(--color-surface-secondary)] hover:bg-[var(--color-gray-200)] rounded-xl transition-colors"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            onClick={onConfirm}
-                            className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-xl transition-colors shadow-sm"
-                        >
-                            Sign out
-                        </button>
-                    </div>
+        <Link
+            to={item.to}
+            onClick={onClick}
+            className={cn(
+                'apple-sidebar-nav group flex w-full items-center gap-3 border px-3 py-2 text-sm font-semibold transition-colors',
+                item.active
+                    ? 'border-sidebar-primary bg-sidebar-primary text-sidebar-primary-foreground'
+                    : 'border-transparent text-sidebar-foreground hover:border-sidebar-border hover:bg-sidebar-accent'
+            )}
+        >
+            <span
+                className={cn(
+                    'flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition-colors',
+                    item.active
+                        ? 'border-white/24 bg-white/18 text-sidebar-primary-foreground'
+                        : 'border-sidebar-border bg-background text-muted-foreground group-hover:text-sidebar-foreground'
+                )}
+            >
+                <Icon className="h-4 w-4" />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+            {item.badge && (
+                <Badge variant={item.active ? 'secondary' : 'outline'} className="ml-auto text-[10px]">
+                    {item.badge}
+                </Badge>
+            )}
+        </Link>
+    );
+}
+
+function SidebarSection({ title, children }: { title: string; children: ReactNode }) {
+    return (
+        <section className="space-y-2">
+            <p className="px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+            <div className="space-y-1">{children}</div>
+        </section>
+    );
+}
+
+function SidebarContent({
+    navItems,
+    plan,
+    creditsRemaining,
+    user,
+    onSettings,
+    onCloseMobile,
+}: {
+    navItems: NavItemConfig[];
+    plan: string;
+    creditsRemaining: number;
+    user: ReturnType<typeof useAuth>['user'];
+    onSettings: () => void;
+    onCloseMobile?: () => void;
+}) {
+    const mainNav = navItems.slice(0, 1);
+    const aiToolsNav = navItems.slice(1, 4);
+    const accountNav = navItems.slice(4, 7);
+    const resourceNav = navItems.slice(7);
+
+    return (
+        <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
+            <div className="border-b border-sidebar-border px-4 py-4">
+                <div className="flex items-center justify-between gap-3">
+                    <Link to="/" className="flex min-w-0 items-center" onClick={onCloseMobile} aria-label="Subtitlepro home">
+                        <BrandLogo variant="wordmark" sizeClassName="h-8 w-[132px]" alt="Subtitlepro" />
+                    </Link>
+                    <Badge variant="outline" className="shrink-0 capitalize">{plan}</Badge>
                 </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-3 py-4">
+                <div className="space-y-4">
+                    {mainNav.map((item) => <NavButton key={item.to} item={item} onClick={onCloseMobile} />)}
+
+                    <SidebarSection title="AI Tools">
+                        {aiToolsNav.map((item) => <NavButton key={item.to} item={item} onClick={onCloseMobile} />)}
+                    </SidebarSection>
+
+                    <SidebarSection title="Manage">
+                        {accountNav.map((item) => <NavButton key={item.to} item={item} onClick={onCloseMobile} />)}
+                    </SidebarSection>
+
+                    <SidebarSection title="Resources">
+                        {resourceNav.map((item) => <NavButton key={item.to} item={item} onClick={onCloseMobile} />)}
+                    </SidebarSection>
+                </div>
+            </div>
+
+            <div className="border-t border-sidebar-border p-3">
+                {plan === 'free' && (
+                    <Button variant="outline" size="sm" asChild className="mb-3 w-full justify-center">
+                        <Link to="/dashboard/billing" onClick={onCloseMobile}>
+                            <Crown className="h-3.5 w-3.5" />
+                            Upgrade plan
+                        </Link>
+                    </Button>
+                )}
+                <button
+                    type="button"
+                    onClick={onSettings}
+                    className="flex w-full items-center gap-3 rounded-2xl border border-sidebar-border bg-background/70 p-2.5 text-left backdrop-blur-xl transition-colors hover:bg-sidebar-accent"
+                >
+                    <Avatar className="h-10 w-10 rounded-xl">
+                        {user?.photoURL && <AvatarImage src={user.photoURL} referrerPolicy="no-referrer" alt="" />}
+                        <AvatarFallback className="rounded-xl">{initials(user?.displayName, user?.email)}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold">{user?.displayName || 'Subtitlepro user'}</p>
+                        <p className="truncate text-xs font-medium text-muted-foreground">{creditsRemaining} credits left</p>
+                    </div>
+                    <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-sidebar-border bg-muted">
+                        <Settings className="h-4 w-4 text-muted-foreground" />
+                    </span>
+                </button>
             </div>
         </div>
     );
 }
 
-// ─── Sidebar Nav Item ────────────────────────────────────────────────────────
-function NavItem({ icon: Icon, label, to, active, badge, onClick }: {
-    icon: React.ElementType;
-    label: string;
-    to?: string;
-    active?: boolean;
-    badge?: string | number;
-    onClick?: () => void;
-}) {
-    const content = (
-        <>
-            <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-[var(--color-primary)]' : 'text-[var(--color-gray-400)] group-hover:text-[var(--color-gray-600)]'}`} />
-            <span className="flex-1 truncate">{label}</span>
-            {badge !== undefined && (
-                <span className="text-[10px] font-bold bg-[var(--color-primary-light)] text-[var(--color-primary)] px-1.5 py-0.5 rounded-md">{badge}</span>
-            )}
-        </>
-    );
-
-    const className = `w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left text-sm transition-colors group ${active
-        ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)] font-medium'
-        : 'text-[var(--color-gray-700)] hover:bg-[var(--color-gray-100)] active:bg-[var(--color-gray-200)]'
-        }`;
-
-    if (to) {
-        return <Link to={to} className={className}>{content}</Link>;
-    }
-    return <button onClick={onClick} className={className}>{content}</button>;
-}
-
-// ─── Section Label ───────────────────────────────────────────────────────────
-function SectionLabel({ children }: { children: React.ReactNode }) {
-    return (
-        <div className="text-[10px] font-semibold text-[var(--color-gray-400)] tracking-[0.12em] uppercase px-3 mt-5 mb-1.5">{children}</div>
-    );
-}
-
-
 export default function DashboardPage() {
-    const { user, signOut, plan, creditsRemaining } = useAuth();
+    const { user, signOut, refreshProfile, plan = 'free', creditsRemaining = 0 } = useAuth();
+    const {
+        themeMode,
+        resolvedTheme,
+        reduceMotion,
+        setThemeMode,
+        setReduceMotion,
+        resetSettings,
+    } = useAppSettings();
     const navigate = useNavigate();
     const location = useLocation();
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-    const [showSignOutModal, setShowSignOutModal] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-    // Detect if video editor is active — render full-screen without sidebar
-    const isVideoEditor = location.pathname.includes('/video-editor/');
-
-    // Dynamic state
     const [projects, setProjects] = useState<Project[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
-
-    // Close dropdown on outside click
-    useEffect(() => {
-        const handleClickOutside = () => setOpenDropdownId(null);
-        document.addEventListener('click', handleClickOutside);
-        return () => document.removeEventListener('click', handleClickOutside);
-    }, []);
-
-    const handleDeleteProject = async (id: string, e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (!window.confirm("Are you sure you want to delete this project?")) return;
-        setOpenDropdownId(null);
-        try {
-            setProjects(prev => prev.filter(p => p.id !== id));
-            await projectsApi.delete(id);
-        } catch (error) {
-            console.error("Failed to delete project:", error);
-            // Optionally revert UI if needed, but optimistic delete is okay here
-        }
-    };
-
-    // Upload modal state
-    const [showModal, setShowModal] = useState(false);
+    const [projectError, setProjectError] = useState('');
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [showSignOutDialog, setShowSignOutDialog] = useState(false);
+    const [showCreateDialog, setShowCreateDialog] = useState(false);
     const [projectName, setProjectName] = useState('');
     const [projectType, setProjectType] = useState<'subtitle' | 'caption'>('subtitle');
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
-    const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const handleSignOut = async () => {
-        setShowSignOutModal(false);
-        await signOut();
-        navigate('/');
-    };
+    const isEditorWorkspace = location.pathname.includes('/video-editor/') || location.pathname.includes('/caption-editor/');
+    const isDashboardHome = location.pathname === '/dashboard';
 
-    useEffect(() => {
-        if (user) {
-            loadProjects();
-        }
-    }, [user]);
+    const navItems: NavItemConfig[] = useMemo(() => [
+        { icon: LayoutDashboard, label: 'Dashboard', to: '/dashboard', active: location.pathname === '/dashboard' },
+        { icon: Captions, label: 'AI Video Subtitle', to: '/dashboard/transcribe', active: location.pathname === '/dashboard/transcribe' },
+        { icon: WandSparkles, label: 'AI Video Caption', to: '/dashboard/translate', active: location.pathname === '/dashboard/translate' || location.pathname.includes('/dashboard/caption-editor') },
+        { icon: Scissors, label: 'Long to Viral', to: '/dashboard/long-to-shorts', active: location.pathname.startsWith('/dashboard/long-to-shorts') },
+        { icon: CalendarClock, label: 'Scheduler', to: '/dashboard/social-scheduler', active: location.pathname === '/dashboard/social-scheduler' },
+        { icon: BarChart3, label: 'Usage & Analytics', to: '/dashboard/analytics', active: location.pathname === '/dashboard/analytics' },
+        { icon: CreditCard, label: 'Billing & Plans', to: '/dashboard/billing', active: location.pathname === '/dashboard/billing' },
+        { icon: Users, label: 'Team Members', to: '/dashboard/team', active: location.pathname === '/dashboard/team', badge: 'Pro' },
+        { icon: BookOpen, label: 'Documentation', to: '/docs', active: location.pathname === '/docs' },
+        { icon: HelpCircle, label: 'Help & Support', to: '/dashboard/help', active: location.pathname === '/dashboard/help' },
+    ], [location.pathname]);
+
+    const visibleProjects = useMemo(
+        () => [...projects].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 8),
+        [projects],
+    );
 
     const loadProjects = async () => {
         setIsLoading(true);
+        setProjectError('');
         try {
-            const res = await projectsApi.list();
-            setProjects(res.data);
+            if (user) {
+                await getCurrentAuthToken({ forceRefresh: true, timeoutMs: 5_000 });
+            }
+            const res = await projectsApi.listAll();
+            setProjects(res.data || []);
         } catch (error) {
             console.error('Error loading projects:', error);
+            if (isAuthSessionError(error) && user) {
+                try {
+                    await refreshProfile();
+                    const retry = await projectsApi.listAll();
+                    setProjects(retry.data || []);
+                    setProjectError('');
+                    return;
+                } catch (retryError) {
+                    console.error('Project reload after auth recovery failed:', retryError);
+                    if (isAuthSessionError(retryError)) {
+                        setProjectError(AUTH_SESSION_REAUTH_MESSAGE);
+                        return;
+                    }
+                    setProjectError(getApiErrorMessage(retryError, 'Unable to load projects right now.'));
+                    return;
+                }
+            }
+            if (isAuthSessionError(error)) {
+                setProjectError(AUTH_SESSION_REAUTH_MESSAGE);
+                return;
+            }
+            setProjectError(getApiErrorMessage(error, 'Unable to load projects right now.'));
         } finally {
             setIsLoading(false);
         }
     };
 
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            setSelectedFile(e.target.files[0]);
-            if (!projectName) {
-                setProjectName(e.target.files[0].name.split('.')[0]);
-            }
-        }
+    useEffect(() => {
+        if (user) void loadProjects();
+    }, [user]);
+
+    const resetCreateForm = () => {
+        setProjectName('');
+        setProjectType('subtitle');
+        setSelectedFile(null);
+        setUploadProgress(0);
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!projectName.trim()) return;
-        if (!selectedFile) return;
+    const openCreateDialog = () => {
+        resetCreateForm();
+        setShowCreateDialog(true);
+        setIsMobileMenuOpen(false);
+    };
+
+    const handleFileSelect = (file: File | null) => {
+        setSelectedFile(file);
+        if (file && !projectName.trim()) setProjectName(file.name.replace(/\.[^.]+$/, '').trim());
+    };
+
+    const handleCreateProject = async (event: React.FormEvent) => {
+        event.preventDefault();
+        if (!projectName.trim() || !selectedFile) return;
 
         setIsSubmitting(true);
         setUploadProgress(0);
-
         try {
-            const projectRes = await projectsApi.create(projectName, projectType);
+            const projectRes = await projectsApi.create(projectName.trim(), projectType);
             const projectId = projectRes.data.id;
-
             await mediaApi.upload(projectId, selectedFile, (progressEvent) => {
-                const percentCompleted = progressEvent.total ? Math.round((progressEvent.loaded * 100) / progressEvent.total) : 0;
-                setUploadProgress(percentCompleted);
+                const pct = progressEvent.total ? Math.round((progressEvent.loaded * 100) / progressEvent.total) : 0;
+                setUploadProgress(pct);
             });
-
-            setShowModal(false);
-            setProjectName('');
-            setSelectedFile(null);
-            setUploadProgress(0);
-
-            // Navigate directly to video editor after upload
-            navigate(`/dashboard/video-editor/${projectId}`);
+            setShowCreateDialog(false);
+            resetCreateForm();
+            void loadProjects();
+            if (projectType === 'caption') {
+                navigate(`/dashboard/caption-editor/${projectId}?autostart=1`);
+            } else {
+                navigate(getProjectOpenPath(projectRes.data));
+            }
         } catch (error) {
             console.error('Error creating project:', error);
-            alert('Failed to create project. Please try again.');
+            setProjectError(getApiErrorMessage(error, 'Failed to create project. Please retry.'));
         } finally {
             setIsSubmitting(false);
         }
     };
 
-    const formatDate = (dateStr: string) => {
-        const date = new Date(dateStr);
-        const diffDays = Math.ceil((date.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-        if (diffDays === 0) return 'today';
-        return new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(diffDays, 'day');
+    const deleteProject = async (project: Project) => {
+        if (!window.confirm(`Delete "${project.name}"?`)) return;
+        const previous = projects;
+        setProjects((items) => items.filter((item) => item.id !== project.id));
+        try {
+            await projectsApi.delete(project.id);
+        } catch (error) {
+            console.error('Failed to delete project:', error);
+            setProjects(previous);
+            setProjectError(getApiErrorMessage(error, 'Failed to delete project. Please retry.'));
+        }
     };
 
-    // ─── Full-screen mode for Video Editor (no sidebar/topbar) ────────────
-    if (isVideoEditor) {
+    const openProject = (project: Project) => navigate(getProjectOpenPath(project));
+
+    const handleSignOut = async () => {
+        setShowSignOutDialog(false);
+        await signOut();
+        navigate('/');
+    };
+
+    if (isEditorWorkspace) {
         return (
-            <div className="h-screen w-screen overflow-hidden">
+            <div className="h-screen w-screen overflow-hidden bg-background">
                 <Outlet />
             </div>
         );
     }
 
+    const sidebar = (
+        <SidebarContent
+            navItems={navItems}
+            plan={plan}
+            creditsRemaining={creditsRemaining}
+            user={user}
+            onSettings={() => {
+                setIsSettingsOpen(true);
+                setIsMobileMenuOpen(false);
+            }}
+            onCloseMobile={() => setIsMobileMenuOpen(false)}
+        />
+    );
+
     return (
-        <div className="flex h-screen bg-[var(--color-surface)] text-[var(--color-gray-900)] font-sans overflow-hidden">
+        <div className="apple-no-shadow flex h-screen min-h-screen overflow-hidden bg-background text-foreground">
+            <aside className="hidden w-[288px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
+                {sidebar}
+            </aside>
 
-            {/* Mobile Backdrop */}
-            {isSidebarOpen && (
-                <div
-                    className="fixed inset-0 bg-black/30 z-20 lg:hidden"
-                    onClick={() => setIsSidebarOpen(false)}
-                    aria-hidden="true"
-                />
-            )}
+            <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
+                <SheetContent side="left" className="w-[288px] p-0 sm:max-w-[288px]">
+                    <SheetHeader className="sr-only">
+                        <SheetTitle>Dashboard menu</SheetTitle>
+                        <SheetDescription>Subtitlepro dashboard navigation</SheetDescription>
+                    </SheetHeader>
+                    {sidebar}
+                </SheetContent>
+            </Sheet>
 
-            {/* Mobile Header */}
-            <div className="lg:hidden fixed top-0 inset-x-0 h-14 bg-[var(--color-surface-elevated)] border-b border-[var(--color-gray-200)] flex items-center justify-between px-4 z-10">
-                <button
-                    onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                    className="p-2 -ml-2 text-[var(--color-gray-600)] hover:text-[var(--color-gray-900)] active:bg-[var(--color-gray-100)] rounded-lg transition-colors"
-                    aria-label={isSidebarOpen ? 'Close menu' : 'Open menu'}
-                >
-                    {isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-                </button>
-                <Link to="/" className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-[var(--color-primary)] text-white flex items-center justify-center font-serif italic text-sm shadow-sm">S</div>
-                    <span className="font-serif font-medium text-[var(--color-gray-900)]">SubtitleAI Pro</span>
-                </Link>
-                {user?.photoURL ? (
-                    <img src={user.photoURL} alt="" className="w-7 h-7 rounded-full border border-[var(--color-gray-200)]" referrerPolicy="no-referrer" />
-                ) : (
-                    <div className="w-7 h-7 rounded-full bg-[var(--color-primary-light)] text-[var(--color-primary)] flex items-center justify-center font-bold text-xs uppercase">
-                        {user?.displayName?.charAt(0) || 'U'}
+            <div className="flex min-w-0 flex-1 flex-col">
+                <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4 sm:px-5 lg:px-6">
+                    <div className="flex min-w-0 items-center gap-3">
+                        <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setIsMobileMenuOpen(true)}>
+                            <Menu className="h-5 w-5" />
+                        </Button>
+                        <button
+                            type="button"
+                            className="hidden h-10 w-[180px] items-center gap-2 rounded-xl border border-border bg-card px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted sm:flex lg:w-[220px]"
+                            aria-label="Search dashboard"
+                        >
+                            <Search className="h-4 w-4 shrink-0" />
+                            <span className="truncate">Search</span>
+                            <span className="ml-auto inline-flex h-6 items-center gap-1 rounded-md border border-border bg-muted px-1.5 text-[11px] font-semibold text-muted-foreground">
+                                <Command className="h-3 w-3" />
+                                K
+                            </span>
+                        </button>
+                        <Button variant="outline" size="icon-sm" className="sm:hidden" aria-label="Search dashboard">
+                            <Search className="h-4 w-4" />
+                        </Button>
                     </div>
-                )}
-            </div>
-
-            {/* ═══════════════ SIDEBAR ═══════════════ */}
-            <div
-                className={`fixed inset-y-0 left-0 z-30 w-72 lg:w-[268px] bg-[var(--color-surface-secondary)] border-r border-[var(--color-gray-200)] flex flex-col transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
-            >
-                {/* Brand */}
-                <div className="h-16 items-center px-5 hidden lg:flex mt-1">
-                    <Link to="/" className="flex items-center gap-2.5 group">
-                        <div className="w-8 h-8 rounded-lg bg-[var(--color-primary)] text-white flex items-center justify-center font-serif italic text-lg shadow-sm">S</div>
-                        <span className="font-serif font-medium text-lg tracking-tight text-[var(--color-gray-900)]">SubtitleAI Pro</span>
-                    </Link>
-                </div>
-
-                {/* Mobile sidebar close */}
-                <div className="h-14 flex items-center justify-between px-4 lg:hidden border-b border-[var(--color-gray-200)]">
-                    <span className="font-serif font-medium text-[var(--color-gray-900)]">Menu</span>
-                    <button onClick={() => setIsSidebarOpen(false)} className="p-2 -mr-2 text-[var(--color-gray-600)] hover:text-[var(--color-gray-900)] active:bg-[var(--color-gray-100)] rounded-lg">
-                        <X className="w-5 h-5" />
-                    </button>
-                </div>
-
-                {/* New Project Button */}
-                <div className="px-4 mt-3 mb-1">
-                    <button
-                        onClick={() => setShowModal(true)}
-                        className="w-full bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)] text-white px-4 py-2.5 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-sm font-medium text-sm"
-                    >
-                        <Plus className="w-4 h-4" />
-                        New Project
-                    </button>
-                </div>
-
-                {/* ── Scrollable Nav ── */}
-                <div className="flex-1 overflow-y-auto px-3 py-1">
-
-                    {/* Main Navigation */}
-                    <SectionLabel>Main</SectionLabel>
-                    <nav className="space-y-0.5">
-                        <NavItem icon={LayoutDashboard} label="Dashboard" to="/dashboard" active={location.pathname === '/dashboard'} />
-                        <NavItem icon={FolderOpen} label="All Projects" to="/dashboard" active={false} badge={projects.length || undefined} />
-                        <NavItem icon={UploadCloud} label="Upload Media" onClick={() => setShowModal(true)} />
-                    </nav>
-
-                    {/* AI Tools */}
-                    <SectionLabel>AI Tools</SectionLabel>
-                    <nav className="space-y-0.5">
-                        <NavItem icon={FilePlay} label="AI Video Subtitle" to="/dashboard/transcribe" active={location.pathname === '/dashboard/transcribe'} />
-                        <NavItem icon={MessageSquare} label="AI Video Caption" to="/dashboard/translate" active={location.pathname === '/dashboard/translate'} />
-                    </nav>
-
-                    {/* Analytics & Billing */}
-                    <SectionLabel>Account</SectionLabel>
-                    <nav className="space-y-0.5">
-                        <NavItem icon={BarChart3} label="Usage & Analytics" to="/dashboard/analytics" active={location.pathname === '/dashboard/analytics'} />
-                        <NavItem icon={CreditCard} label="Billing & Plans" to="/dashboard/billing" active={location.pathname === '/dashboard/billing'} />
-                        <NavItem icon={Users} label="Team Members" to="/dashboard/team" active={location.pathname === '/dashboard/team'} badge="Pro" />
-                    </nav>
-
-                    {/* Recent Projects */}
-                    {projects.length > 0 && (
-                        <>
-                            <SectionLabel>Recent Projects</SectionLabel>
-                            <nav className="space-y-0.5">
-                                {isLoading ? (
-                                    <div className="px-3 py-2 text-sm text-[var(--color-gray-400)]">Loading...</div>
-                                ) : projects.slice(0, 5).map((p) => (
-                                    <div key={p.id} className="relative group flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--color-gray-600)] hover:bg-[var(--color-gray-100)] transition-colors">
-                                        <MessageSquare className="w-3.5 h-3.5 text-[var(--color-gray-400)] shrink-0" />
-                                        <button className="truncate flex-1 text-left" onClick={() => { setIsSidebarOpen(false); navigate(`/dashboard/video-editor/${p.id}`); }}>{p.name}</button>
-                                        {p.status === 'processing' && (
-                                            <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-warning)] animate-pulse shrink-0"></span>
-                                        )}
-                                        <button onClick={(e) => { e.stopPropagation(); setOpenDropdownId(openDropdownId === p.id ? null : p.id) }} className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-[var(--color-gray-200)] transition-opacity">
-                                            <MoreHorizontal className="w-3.5 h-3.5" />
-                                        </button>
-                                        {openDropdownId === p.id && (
-                                            <div className="absolute right-2 top-8 w-36 bg-white border border-[var(--color-gray-200)] rounded-xl shadow-lg py-1 z-50 animate-in fade-in zoom-in-95 duration-100">
-                                                <button onClick={(e) => { e.stopPropagation(); setOpenDropdownId(null); setIsSidebarOpen(false); navigate(`/dashboard/video-editor/${p.id}`); }} className="w-full text-left px-3 py-1.5 text-xs font-medium hover:bg-[var(--color-gray-50)] text-[var(--color-gray-700)]">Open Project</button>
-                                                <div className="h-px bg-[var(--color-gray-100)] my-1"></div>
-                                                <button onClick={(e) => handleDeleteProject(p.id, e)} className="w-full text-left px-3 py-1.5 text-xs font-medium hover:bg-red-50 text-red-600 transition-colors">Delete</button>
-                                            </div>
-                                        )}
-                                    </div>
-                                ))}
-                            </nav>
-                        </>
-                    )}
-
-                    {/* Resources */}
-                    <SectionLabel>Resources</SectionLabel>
-                    <nav className="space-y-0.5">
-                        <NavItem icon={BookOpen} label="Documentation" to="/docs" />
-                        <NavItem icon={HelpCircle} label="Help & Support" to="/dashboard/help" active={location.pathname === '/dashboard/help'} />
-                        <NavItem icon={BookOpen} label="API Reference" to="/api-reference" />
-                    </nav>
-                </div>
-
-                {/* ── Sidebar Footer ── */}
-                <div className="p-3 border-t border-[var(--color-gray-200)] space-y-2">
-
-                    {/* Plan Card */}
-                    <div className="bg-white rounded-xl p-3 border border-[var(--color-gray-200)] shadow-sm">
-                        <div className="flex justify-between items-center mb-2">
-                            <span className="text-[10px] font-semibold text-[var(--color-gray-400)] uppercase tracking-wider">Plan</span>
-                            <span className="text-[10px] font-bold text-[var(--color-primary)] bg-[var(--color-primary-light)] px-1.5 py-0.5 rounded capitalize">{plan}</span>
-                        </div>
-                        <div className="flex items-end gap-1 mb-1.5">
-                            <span className="text-xl font-serif font-medium text-[var(--color-gray-900)]">{Math.round(creditsRemaining / 60)}</span>
-                            <span className="text-xs text-[var(--color-gray-500)] mb-0.5">min remaining</span>
-                        </div>
-                        <div className="h-1.5 w-full bg-[var(--color-gray-100)] rounded-full overflow-hidden mb-2.5">
-                            <div className="h-full bg-[var(--color-primary)] rounded-full" style={{ width: `${plan === 'free' ? Math.min(100, (creditsRemaining / 3600) * 100) : plan === 'creator' ? Math.min(100, (creditsRemaining / 18000) * 100) : Math.min(100, (creditsRemaining / 90000) * 100)}%` }}></div>
-                        </div>
-                        {plan === 'free' && (
-                            <Link to="/dashboard/billing" className="w-full text-xs font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-dark)] flex items-center justify-center gap-1 py-1 rounded-lg hover:bg-[var(--color-primary-light)] transition-colors">
-                                <Crown className="w-3 h-3" />
-                                Upgrade Plan
+                    <div className="flex min-w-0 items-center gap-2">
+                        <Button variant="outline" size="sm" asChild className="hidden sm:inline-flex">
+                            <Link to="/dashboard/team">
+                                <UserPlus className="h-4 w-4" />
+                                Invite
                             </Link>
-                        )}
-                    </div>
-
-                    {/* User Button */}
-                    <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-[var(--color-gray-700)] hover:bg-[var(--color-gray-100)] transition-colors">
-                        {user?.photoURL ? (
-                            <img src={user.photoURL} alt="" className="w-7 h-7 rounded-full shrink-0 ring-2 ring-[var(--color-gray-100)]" referrerPolicy="no-referrer" />
-                        ) : (
-                            <div className="w-7 h-7 rounded-full bg-[var(--color-primary-light)] text-[var(--color-primary)] flex items-center justify-center font-bold text-xs uppercase shrink-0">
-                                {user?.displayName?.charAt(0) || user?.email?.charAt(0) || 'U'}
-                            </div>
-                        )}
-                        <div className="flex-1 min-w-0 text-left">
-                            <div className="text-sm font-medium text-[var(--color-gray-900)] truncate">{user?.displayName || 'User'}</div>
-                            <div className="text-[11px] text-[var(--color-gray-500)] truncate">{user?.email}</div>
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="icon-sm"
+                            asChild
+                            className="hidden border-primary/45 bg-primary/5 text-foreground hover:bg-primary/10 sm:inline-flex"
+                        >
+                            <Link to="/dashboard/billing" aria-label="Billing rewards">
+                                <Gift className="h-4 w-4" />
+                            </Link>
+                        </Button>
+                        <Button variant="outline" size="icon-sm" asChild className="hidden sm:inline-flex">
+                            <Link to="/dashboard/help" aria-label="Community">
+                                <MessageCircle className="h-4 w-4" />
+                            </Link>
+                        </Button>
+                        <Button variant="outline" size="icon-sm" asChild>
+                            <Link to="/dashboard/help" aria-label="Help">
+                                <HelpCircle className="h-4 w-4" />
+                            </Link>
+                        </Button>
+                        <div className="hidden h-10 items-center gap-2 rounded-xl border border-border bg-card px-3 text-sm font-semibold text-foreground sm:flex">
+                            <Sparkles className="h-4 w-4 text-primary" />
+                            <span>{creditsRemaining} credits</span>
                         </div>
-                        <ChevronRight className="w-4 h-4 text-[var(--color-gray-400)]" />
-                    </button>
-
-                    {/* Sign Out */}
-                    <button
-                        onClick={() => setShowSignOutModal(true)}
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-red-500 hover:bg-red-50 active:bg-red-100 transition-colors"
-                    >
-                        <LogOut className="w-4 h-4 shrink-0 ml-0.5" />
-                        <span className="font-medium">Sign out</span>
-                    </button>
-                </div>
-            </div>
-
-            {/* ═══════════════ MAIN CONTENT ═══════════════ */}
-            <div className="flex-1 flex flex-col pt-14 lg:pt-0 max-h-screen min-w-0">
-                {/* Top Bar - Hide in Video Editor and Video Caption (translate) page */}
-                {!isVideoEditor && location.pathname !== '/dashboard/translate' && (
-                    <div className="h-14 lg:h-16 border-b border-[var(--color-gray-200)] flex items-center justify-between px-4 lg:px-8 bg-[var(--color-surface)] shrink-0">
-                        <h1 className="font-serif text-lg lg:text-xl text-[var(--color-gray-900)]">Projects</h1>
-                        <div className="relative w-40 sm:w-56 lg:w-64">
-                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                <Search className="h-4 w-4 text-[var(--color-gray-400)]" />
-                            </div>
-                            <input
-                                type="text"
-                                className="claude-input w-full pl-9 pr-3 py-2 text-sm text-[var(--color-gray-900)] bg-[var(--color-surface)] placeholder-[var(--color-gray-400)]"
-                                placeholder="Search projects..."
-                            />
-                        </div>
+                        <Button size="sm" asChild className="bg-amber-200 text-amber-950 hover:bg-amber-300">
+                            <Link to="/dashboard/billing">
+                                Upgrade
+                            </Link>
+                        </Button>
                     </div>
-                )}
+                </header>
 
-                {/* Dashboard Canvas */}
-                <div className={`flex-1 overflow-y-auto bg-[var(--color-surface)] ${isVideoEditor || location.pathname === '/dashboard/translate' ? '' : 'p-4 sm:p-6 lg:p-10'}`}>
-                    {location.pathname !== '/dashboard' ? (
+                <main className={cn('flex-1 overflow-y-auto bg-background', isDashboardHome ? 'p-4 sm:p-6 lg:p-8' : '')}>
+                    {!isDashboardHome ? (
                         <Outlet />
                     ) : (
-                        <div className="max-w-6xl mx-auto">
-                            {/* Carousel Banner Area For Updates */}
-                            <div className="mb-10 w-full overflow-hidden rounded-2xl bg-gradient-to-br from-[var(--color-primary)] via-[#8352FD] to-[#5926ec] p-8 md:p-12 text-white shadow-lg relative flex flex-col md:flex-row items-center justify-between gap-8 group">
-                                <div className="z-10 relative max-w-xl">
-                                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 text-white text-[11px] font-bold tracking-wider uppercase mb-4 backdrop-blur-md border border-white/20">
-                                        <Sparkles className="w-3.5 h-3.5" />
-                                        New Feature
-                                    </div>
-                                    <h2 className="text-3xl md:text-4xl font-serif font-medium mb-4 leading-tight">Generate Subtitles in 100+ Languages instantly</h2>
-                                    <p className="text-white/80 mb-8 text-sm md:text-base leading-relaxed">Meet our newest AI model. Automate your full video editing workflow with cinematic captions, automatic gap cuts, and highly accurate translations.</p>
-                                    <div className="flex items-center gap-4">
-                                        <button onClick={() => setShowModal(true)} className="px-6 py-3 bg-white text-[var(--color-primary)] rounded-xl font-bold shadow-sm hover:scale-105 transition-transform active:scale-95 flex items-center gap-2">
-                                            <UploadCloud className="w-4 h-4" />
-                                            Upload Media
-                                        </button>
-                                        <div className="flex gap-1.5">
-                                            <div className="w-6 h-1.5 rounded-full bg-white"></div>
-                                            <div className="w-1.5 h-1.5 rounded-full bg-white/40 group-hover:bg-white/60 transition-colors"></div>
-                                            <div className="w-1.5 h-1.5 rounded-full bg-white/40 group-hover:bg-white/60 transition-colors"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                                {/* Illustrative Decoration */}
-                                <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-white/10 blur-[80px] transform rotate-12 -translate-y-20 translate-x-20 rounded-full pointer-events-none"></div>
-                                <div className="hidden md:flex relative z-10 w-72 h-56 bg-white/10 border border-white/20 rounded-2xl backdrop-blur-md shadow-2xl p-5 flex-col justify-between transform transition-transform group-hover:rotate-2 group-hover:scale-105 duration-500">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center shadow-inner"><FileVideo2 className="w-6 h-6 text-white" /></div>
-                                        <div className="flex-1 space-y-2">
-                                            <div className="w-3/4 h-2.5 bg-white/30 rounded-full"></div>
-                                            <div className="w-1/2 h-2.5 bg-white/20 rounded-full"></div>
-                                        </div>
-                                    </div>
-                                    <div className="space-y-3">
-                                        <div className="h-8 rounded-lg bg-white/10 flex items-center px-3 border border-white/10">
-                                            <div className="w-2 h-2 rounded-full bg-[var(--color-success)] mr-2 animate-pulse"></div>
-                                            <div className="w-1/3 h-1.5 bg-white/30 rounded-full"></div>
-                                        </div>
-                                        <div className="h-8 rounded-lg bg-white/10 flex items-center px-3 border border-white/10">
-                                            <div className="w-2 h-2 rounded-full bg-[var(--color-warning)] mr-2"></div>
-                                            <div className="w-1/2 h-1.5 bg-white/30 rounded-full"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                        <div className="mx-auto max-w-7xl space-y-6">
+                            {projectError && (
+                                <Alert variant="destructive" className="grid-cols-[20px_1fr]">
+                                    <AlertTriangle className="h-4 w-4" />
+                                    <AlertTitle>Dashboard action failed</AlertTitle>
+                                    <AlertDescription>{projectError}</AlertDescription>
+                                </Alert>
+                            )}
 
-                            {projects.length === 0 && !isLoading ? (
-                                <div className="mt-4 sm:mt-8 mb-8 sm:mb-12 flex flex-col items-center justify-center text-center p-6 sm:p-12 border border-[var(--color-gray-200)] border-dashed rounded-2xl bg-[var(--color-surface-secondary)]/50">
-                                    <div className="w-14 h-14 sm:w-16 sm:h-16 bg-white rounded-2xl border border-[var(--color-gray-200)] shadow-sm flex items-center justify-center mb-5 sm:mb-6 relative">
-                                        <Sparkles className="w-6 h-6 sm:w-8 sm:h-8 text-[var(--color-primary)] absolute -top-2 -right-2" />
-                                        <FileVideo2 className="w-6 h-6 sm:w-8 sm:h-8 text-[var(--color-gray-400)]" />
-                                    </div>
-                                    <h2 className="text-xl sm:text-2xl font-serif text-[var(--color-gray-900)] mb-2 sm:mb-3">What are we translating today?</h2>
-                                    <p className="text-sm sm:text-base text-[var(--color-gray-500)] max-w-md mb-6 sm:mb-8">Upload a video to automatically generate captions, apply dynamic text animations, refine them on a professional multi-track timeline, and export directly to a hardcoded MP4.</p>
-                                    <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 w-full sm:w-auto">
-                                        <button
-                                            onClick={() => setShowModal(true)}
-                                            className="claude-button-primary px-6 py-3 rounded-xl shadow-sm font-medium flex items-center justify-center gap-2 w-full sm:w-auto"
+                            <section>
+                                <Card>
+                                    <CardContent className="p-6 sm:p-8">
+                                        <Badge variant="secondary" className="mb-4 w-max gap-2">
+                                            <Sparkles className="h-3.5 w-3.5" />
+                                            Dashboard
+                                        </Badge>
+                                        <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
+                                            <div>
+                                                <h2 className="max-w-3xl text-4xl font-semibold leading-tight tracking-[-0.04em] sm:text-5xl">
+                                                    What do you want to create?
+                                                </h2>
+                                                <p className="mt-3 max-w-xl text-sm font-medium leading-6 text-muted-foreground sm:text-base">
+                                                    Choose a workspace, upload media, or continue from a recent project.
+                                                </p>
+                                            </div>
+                                            <div className="flex flex-col gap-3 sm:flex-row lg:justify-end">
+                                                <Button size="lg" onClick={openCreateDialog}>
+                                                    <UploadCloud className="h-4 w-4" />
+                                                    Upload
+                                                </Button>
+                                                <Button size="lg" variant="outline" asChild>
+                                                    <Link to="/dashboard/long-to-shorts">
+                                                        <Scissors className="h-4 w-4" />
+                                                        Long to Viral
+                                                    </Link>
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            </section>
+
+                            <section>
+                                <div className="mb-3 flex items-center justify-between gap-4">
+                                    <h2 className="text-xl font-semibold tracking-[-0.03em]">AI tools</h2>
+                                </div>
+                                <div className="grid gap-3 lg:grid-cols-3">
+                                    {aiToolCards.map((tool) => (
+                                        <Link
+                                            key={tool.title}
+                                            to={tool.to}
+                                            className="apple-link-card flex min-h-24 items-center gap-3 p-4"
                                         >
-                                            <UploadCloud className="w-4 h-4" />
-                                            Upload Media
-                                        </button>
+                                            <span className="apple-icon-cell shrink-0">
+                                                <tool.icon className="h-5 w-5" />
+                                            </span>
+                                            <span className="min-w-0 flex-1">
+                                                <span className="block text-base font-semibold tracking-[-0.02em]">{tool.title}</span>
+                                                <span className="mt-1 block truncate text-sm font-medium text-muted-foreground">{tool.meta}</span>
+                                            </span>
+                                            <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                        </Link>
+                                    ))}
+                                </div>
+                            </section>
+
+                            <section>
+                                <div className="mb-4 flex items-end justify-between gap-4">
+                                    <div>
+                                        <h2 className="text-2xl font-semibold tracking-[-0.03em]">Recent projects</h2>
+                                        <p className="mt-1 text-sm text-muted-foreground">Open existing subtitle, caption, and shorts workspaces.</p>
+                                    </div>
+                                    <Button variant="outline" size="sm" onClick={() => void loadProjects()}>
+                                        Refresh
+                                    </Button>
+                                </div>
+
+                                {isLoading ? (
+                                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                                        {Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-52 rounded-xl" />)}
+                                    </div>
+                                ) : visibleProjects.length === 0 ? (
+                                    <Card>
+                                        <CardContent className="flex flex-col items-center justify-center px-6 py-16 text-center">
+                                            <FileVideo2 className="mb-4 h-10 w-10 text-primary" />
+                                            <CardTitle>No projects yet</CardTitle>
+                                            <CardDescription className="mt-2 max-w-md">
+                                                Create your first project to start subtitle generation, caption styling, or Long to Viral analysis.
+                                            </CardDescription>
+                                            <Button className="mt-5" onClick={openCreateDialog}>
+                                                <Plus className="h-4 w-4" />
+                                                Create project
+                                            </Button>
+                                        </CardContent>
+                                    </Card>
+                                ) : (
+                                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                                        {visibleProjects.map((project) => (
+                                            <Card key={project.id} className="group cursor-pointer transition-colors hover:border-primary/35" onClick={() => openProject(project)}>
+                                                <CardHeader className="pb-3">
+                                                    <div className="mb-3 flex items-center justify-between">
+                                                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-primary">
+                                                            <FileVideo2 className="h-5 w-5" />
+                                                        </div>
+                                                        <DropdownMenu>
+                                                            <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
+                                                                <Button variant="ghost" size="icon-sm">
+                                                                    <MoreHorizontal className="h-4 w-4" />
+                                                                </Button>
+                                                            </DropdownMenuTrigger>
+                                                            <DropdownMenuContent align="end">
+                                                                <DropdownMenuItem onClick={(event) => { event.stopPropagation(); openProject(project); }}>Open Project</DropdownMenuItem>
+                                                                <DropdownMenuSeparator />
+                                                                <DropdownMenuItem variant="destructive" onClick={(event) => { event.stopPropagation(); void deleteProject(project); }}>Delete</DropdownMenuItem>
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
+                                                    </div>
+                                                    <CardTitle className="truncate text-base">{project.name}</CardTitle>
+                                                    <CardDescription className="flex flex-wrap items-center gap-2">
+                                                        <span>{getProjectTypeLabel(project)}</span>
+                                                        <span>{formatDate(project.created_at)}</span>
+                                                    </CardDescription>
+                                                </CardHeader>
+                                                <CardContent>
+                                                    <Badge variant={projectStatusVariant(project.status)} className="capitalize">{project.status || 'unknown'}</Badge>
+                                                </CardContent>
+                                            </Card>
+                                        ))}
+                                    </div>
+                                )}
+                            </section>
+                        </div>
+                    )}
+                </main>
+            </div>
+
+            <Sheet open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+                <SheetContent className="flex w-full flex-col overflow-hidden border-l border-border bg-background p-0 sm:max-w-[520px]">
+                    <div className="border-b border-border px-6 pb-5 pt-6">
+                        <SheetHeader className="gap-1 pr-8">
+                            <SheetTitle className="text-2xl font-semibold tracking-[-0.04em]">Settings</SheetTitle>
+                            <SheetDescription>Personalize the workspace without leaving production flow.</SheetDescription>
+                        </SheetHeader>
+                    </div>
+
+                    <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+                        <div className="space-y-5">
+                            <section className="rounded-[1.75rem] border border-border bg-card p-4">
+                                <div className="flex items-center gap-4">
+                                    <Avatar className="h-14 w-14 rounded-2xl border border-border">
+                                        {user?.photoURL && <AvatarImage src={user.photoURL} referrerPolicy="no-referrer" alt="" />}
+                                        <AvatarFallback className="rounded-2xl text-base">{initials(user?.displayName, user?.email)}</AvatarFallback>
+                                    </Avatar>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="truncate text-base font-semibold tracking-[-0.02em]">{user?.displayName || 'Subtitlepro user'}</p>
+                                        <p className="truncate text-sm text-muted-foreground">{user?.email}</p>
                                     </div>
                                 </div>
-                            ) : (
-                                <>
-                                    <div className="flex items-center justify-between mb-4">
-                                        <h2 className="text-lg font-serif text-[var(--color-gray-900)] flex items-center gap-2">
-                                            Recent Projects
-                                        </h2>
-                                        <button onClick={() => navigate('/dashboard/transcribe')} className="text-sm font-medium text-[var(--color-primary)] hover:text-[#5926ec] transition-colors">View all →</button>
+                                <div className="mt-4 grid grid-cols-2 gap-2">
+                                    <div className="rounded-2xl border border-border bg-muted/35 px-3 py-3">
+                                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Plan</p>
+                                        <p className="mt-1 truncate text-sm font-semibold capitalize">{plan}</p>
                                     </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5">
-                                        {projects.slice(0, 4).map((project) => (
-                                            <div
-                                                key={project.id}
-                                                className="p-4 sm:p-5 bg-white border border-[var(--color-gray-200)] rounded-2xl shadow-sm hover:border-[var(--color-primary-light)] hover:shadow-md active:shadow-sm transition-all cursor-pointer group"
-                                                onClick={() => navigate(`/dashboard/video-editor/${project.id}`)}
-                                            >
-                                                <div className="flex items-start justify-between mb-3 sm:mb-4 relative">
-                                                    <div className="flex gap-2">
-                                                        <div className="w-10 h-10 rounded-xl bg-[var(--color-primary-light)] flex items-center justify-center text-[var(--color-primary)]">
-                                                            <FilePlay className="w-5 h-5" />
-                                                        </div>
-                                                        {project.status === 'processing' ? (
-                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 max-h-6 rounded-md text-xs font-medium bg-[var(--color-warning-light)] text-[var(--color-warning)] border border-[var(--color-warning)]/20">
-                                                                <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-warning)] animate-pulse"></span>
-                                                                Processing
-                                                            </span>
-                                                        ) : project.status === 'error' ? (
-                                                            <span className="inline-flex items-center px-2.5 py-1 max-h-6 rounded-md text-xs font-medium bg-red-50 text-red-600 border border-red-200">
-                                                                Failed
-                                                            </span>
-                                                        ) : (
-                                                            <span className="inline-flex items-center px-2.5 py-1 max-h-6 rounded-md text-xs font-medium bg-[var(--color-success-light)] text-[var(--color-success)] border border-[var(--color-success)]/20">
-                                                                Ready
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    <div className="relative">
-                                                        <button onClick={(e) => { e.stopPropagation(); setOpenDropdownId(openDropdownId === project.id ? null : project.id) }} className="p-1.5 rounded-lg text-[var(--color-gray-400)] hover:text-[var(--color-gray-700)] hover:bg-[var(--color-gray-100)] transition-colors">
-                                                            <MoreHorizontal className="w-4 h-4" />
-                                                        </button>
-                                                        {openDropdownId === project.id && (
-                                                            <div className="absolute right-0 top-8 w-36 bg-white border border-[var(--color-gray-200)] rounded-xl shadow-lg py-1 z-50 animate-in fade-in zoom-in-95 duration-100 text-left">
-                                                                <button onClick={(e) => { e.stopPropagation(); setOpenDropdownId(null); navigate(`/dashboard/video-editor/${project.id}`); }} className="w-full text-left px-3 py-2 text-sm font-medium hover:bg-[var(--color-gray-50)] text-[var(--color-gray-700)]">Open Project</button>
-                                                                <div className="h-px bg-[var(--color-gray-100)] my-1"></div>
-                                                                <button onClick={(e) => handleDeleteProject(project.id, e)} className="w-full text-left px-3 py-2 text-sm font-medium hover:bg-red-50 text-red-600 transition-colors">Delete</button>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                                <h3 className="font-medium text-[var(--color-gray-900)] mb-1 truncate group-hover:text-[var(--color-primary)] transition-colors">{project.name}</h3>
-                                                <div className="flex items-center gap-3 text-xs text-[var(--color-gray-500)]">
-                                                    <span>{project.duration_sec ? `${Math.round(project.duration_sec / 60)}m` : '0m'}</span>
-                                                    <span>&middot;</span>
-                                                    <span>{formatDate(project.created_at)}</span>
-                                                </div>
+                                    <div className="rounded-2xl border border-border bg-muted/35 px-3 py-3">
+                                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Credits</p>
+                                        <p className="mt-1 text-sm font-semibold">{creditsRemaining} left</p>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section className="space-y-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <h3 className="text-sm font-semibold tracking-[-0.02em]">Appearance</h3>
+                                        <p className="text-sm text-muted-foreground">Current theme is {resolvedTheme}.</p>
+                                    </div>
+                                    <span className="flex h-9 w-9 items-center justify-center rounded-2xl border border-border bg-muted/35 text-primary">
+                                        <Palette className="h-4 w-4" />
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-3 gap-2 rounded-[1.35rem] border border-border bg-muted/40 p-1.5">
+                                    {[
+                                        { id: 'light' as ThemeMode, label: 'Light', icon: Sun },
+                                        { id: 'dark' as ThemeMode, label: 'Dark', icon: Moon },
+                                        { id: 'system' as ThemeMode, label: 'System', icon: Monitor },
+                                    ].map((option) => (
+                                        <button
+                                            key={option.id}
+                                            type="button"
+                                            onClick={() => setThemeMode(option.id)}
+                                            className={cn(
+                                                'flex h-20 flex-col items-center justify-center gap-2 rounded-2xl border text-sm font-semibold transition-colors',
+                                                themeMode === option.id
+                                                    ? 'border-primary bg-background text-foreground'
+                                                    : 'border-transparent text-muted-foreground hover:bg-background/70 hover:text-foreground'
+                                            )}
+                                        >
+                                            <option.icon className="h-4 w-4" />
+                                            <span>{option.label}</span>
+                                            {themeMode === option.id && <CheckCircle2 className="h-3.5 w-3.5 text-primary" />}
+                                        </button>
+                                    ))}
+                                </div>
+                            </section>
+
+                            <section className="space-y-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <h3 className="text-sm font-semibold tracking-[-0.02em]">Workspace behavior</h3>
+                                        <p className="text-sm text-muted-foreground">Keep the editor calm and readable.</p>
+                                    </div>
+                                    <span className="flex h-9 w-9 items-center justify-center rounded-2xl border border-border bg-muted/35 text-primary">
+                                        <Gauge className="h-4 w-4" />
+                                    </span>
+                                </div>
+                                <div className="rounded-[1.5rem] border border-border bg-card p-2">
+                                    <div className="flex items-center justify-between gap-4 rounded-[1.15rem] px-3 py-3">
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-semibold">Reduce motion</p>
+                                            <p className="mt-0.5 text-sm text-muted-foreground">Use softer transitions across the dashboard.</p>
+                                        </div>
+                                        <Switch checked={reduceMotion} onCheckedChange={setReduceMotion} />
+                                    </div>
+                                    <Separator className="my-1" />
+                                    <div className="flex items-start gap-3 rounded-[1.15rem] px-3 py-3">
+                                        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                        <p className="text-sm leading-6 text-muted-foreground">
+                                            Caption editing, timeline work, and Long to Viral tools are tuned for desktop workspaces.
+                                        </p>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+
+                    <div className="border-t border-border bg-background/95 px-6 py-4">
+                        <div className="grid grid-cols-2 gap-2">
+                            <Button variant="outline" className="h-11" onClick={resetSettings}>
+                                <RotateCcw className="h-4 w-4" />
+                                Reset
+                            </Button>
+                            <Button variant="destructive" className="h-11" onClick={() => {
+                                setIsSettingsOpen(false);
+                                setShowSignOutDialog(true);
+                            }}>
+                                <LogOut className="h-4 w-4" />
+                                Sign out
+                            </Button>
+                        </div>
+                    </div>
+                </SheetContent>
+            </Sheet>
+
+            <Dialog open={showSignOutDialog} onOpenChange={setShowSignOutDialog}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Sign out?</DialogTitle>
+                        <DialogDescription>Any unsaved editor changes may be lost. You can sign back in with Google.</DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowSignOutDialog(false)}>Cancel</Button>
+                        <Button variant="destructive" onClick={() => void handleSignOut()}>
+                            <LogOut className="h-4 w-4" />
+                            Sign out
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={showCreateDialog} onOpenChange={(open) => {
+                if (!isSubmitting) setShowCreateDialog(open);
+            }}>
+                <DialogContent className="max-h-[90vh] max-w-5xl overflow-hidden p-0">
+                    <div className="grid lg:grid-cols-[0.92fr_1.08fr]">
+                        <div className="relative hidden min-h-[620px] overflow-hidden bg-foreground lg:block">
+                            <img src="/ezgif-6281616365727e32.gif" alt="" className="absolute inset-0 h-full w-full object-cover opacity-80" />
+                            <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(0,0,0,0.82)_0%,rgba(0,0,0,0.45)_52%,rgba(0,0,0,0.12)_100%)]" />
+                            <div className="relative z-10 flex h-full flex-col justify-between p-7 text-white">
+                                <Badge className="w-max bg-white text-black hover:bg-white">
+                                    <Sparkles className="h-3.5 w-3.5 text-primary" />
+                                    AI production setup
+                                </Badge>
+                                <div>
+                                    <h2 className="text-5xl font-black uppercase leading-[0.9] tracking-normal">Upload once. Produce everywhere.</h2>
+                                    <p className="mt-4 max-w-sm text-sm font-medium leading-6 text-white/74">
+                                        Route the same media into subtitles, styled captions, or shorts without losing source context.
+                                    </p>
+                                    <div className="mt-6 grid grid-cols-3 gap-2">
+                                        {['Captions', 'B-roll', 'Export'].map((label) => (
+                                            <div key={label} className="rounded-xl border border-white/15 bg-white/10 p-3 backdrop-blur">
+                                                <p className="text-xs font-black uppercase text-white/70">{label}</p>
                                             </div>
                                         ))}
                                     </div>
-                                </>
-                            )}
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* ═══════════════ MODALS ═══════════════ */}
-
-            {/* Sign-Out Confirmation */}
-            <SignOutModal
-                isOpen={showSignOutModal}
-                onConfirm={handleSignOut}
-                onCancel={() => setShowSignOutModal(false)}
-            />
-
-            {/* Create Project Modal */}
-            {showModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-                        <div className="px-6 py-4 border-b border-[var(--color-gray-200)] flex items-center justify-between">
-                            <h3 className="font-serif text-lg text-[var(--color-gray-900)]">Create Project</h3>
-                            <button onClick={() => setShowModal(false)} className="text-[var(--color-gray-500)] hover:text-[var(--color-gray-900)]">
-                                <X className="w-5 h-5" />
-                            </button>
-                        </div>
-                        <form onSubmit={handleSubmit} className="p-6 space-y-5">
-                            <div onClick={() => fileInputRef.current?.click()}
-                                className="border-2 border-dashed border-[var(--color-gray-300)] rounded-xl p-8 text-center cursor-pointer hover:bg-[var(--color-surface-secondary)] hover:border-[var(--color-primary-light)] transition-colors">
-                                <UploadCloud className="w-8 h-8 text-[var(--color-gray-400)] mx-auto mb-3" />
-                                <p className="text-sm text-[var(--color-gray-900)] font-medium mb-1">
-                                    {selectedFile ? selectedFile.name : 'Click to select a file'}
-                                </p>
-                                <p className="text-xs text-[var(--color-gray-500)]">MP4, MP3, WAV, MOV, MKV, AVI, WebM up to 2GB</p>
-                                <input type="file" className="hidden" ref={fileInputRef} onChange={handleFileSelect} accept="video/*,audio/*" />
-                            </div>
-
-                            <div className="space-y-4">
-                                <div className="space-y-1.5">
-                                    <label className="text-sm font-medium text-[var(--color-gray-700)]">Project Name</label>
-                                    <input type="text" placeholder="Enter project name..." className="claude-input w-full" value={projectName} onChange={(e) => setProjectName(e.target.value)} required />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-sm font-medium text-[var(--color-gray-700)]">Project Type</label>
-                                    <div className="flex gap-4 p-1">
-                                        <label className="flex items-center gap-2 text-sm text-[var(--color-gray-900)] cursor-pointer">
-                                            <input type="radio" value="subtitle" checked={projectType === 'subtitle'} onChange={() => setProjectType('subtitle')} className="accent-[var(--color-primary)] w-4 h-4 cursor-pointer" />
-                                            <span>AI Video Subtitle</span>
-                                        </label>
-                                        <label className="flex items-center gap-2 text-sm text-[var(--color-gray-900)] cursor-pointer">
-                                            <input type="radio" value="caption" checked={projectType === 'caption'} onChange={() => setProjectType('caption')} className="accent-[var(--color-primary)] w-4 h-4 cursor-pointer" />
-                                            <span>AI Video Caption</span>
-                                        </label>
-                                    </div>
                                 </div>
                             </div>
+                        </div>
 
-                            {isSubmitting && (
-                                <div className="space-y-2">
-                                    <div className="flex justify-between text-xs font-medium text-[var(--color-gray-600)]">
-                                        <span>Uploading...</span>
-                                        <span>{uploadProgress}%</span>
-                                    </div>
-                                    <div className="h-1.5 w-full bg-[var(--color-gray-100)] rounded-full overflow-hidden">
-                                        <div className="h-full bg-[var(--color-primary)] rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div>
-                                    </div>
-                                </div>
-                            )}
+                        <form onSubmit={handleCreateProject} className="flex max-h-[90vh] flex-col overflow-y-auto">
+                            <DialogHeader className="border-b border-border p-6 text-left">
+                                <Badge variant="secondary" className="mb-2 w-max">New workspace</Badge>
+                                <DialogTitle className="text-2xl">Create AI Video Project</DialogTitle>
+                                <DialogDescription>Choose the source file and the first workspace to open.</DialogDescription>
+                            </DialogHeader>
 
-                            <div className="pt-4 flex justify-end gap-3 border-t border-[var(--color-gray-200)]">
-                                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 text-sm font-medium text-[var(--color-gray-600)] hover:text-[var(--color-gray-900)] transition-colors" disabled={isSubmitting}>Cancel</button>
-                                <button type="submit" disabled={isSubmitting || !selectedFile} className="claude-button-primary px-4 py-2 text-sm disabled:opacity-50 flex items-center gap-2">
-                                    {isSubmitting ? (<><Loader2 className="w-4 h-4 animate-spin" /> Processing...</>) : ('Create Project')}
+                            <div className="space-y-5 p-6">
+                                <button
+                                    type="button"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className={cn(
+                                        'w-full rounded-xl border-2 border-dashed p-5 text-left transition-colors',
+                                        selectedFile ? 'border-primary bg-primary/5' : 'border-border bg-muted/35 hover:border-primary hover:bg-primary/5'
+                                    )}
+                                >
+                                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                                        <div className={cn('flex h-14 w-14 shrink-0 items-center justify-center rounded-xl', selectedFile ? 'bg-primary text-primary-foreground' : 'bg-background text-primary')}>
+                                            <UploadCloud className="h-6 w-6" />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="truncate text-base font-semibold">{selectedFile ? selectedFile.name : 'Drop or select your video/audio file'}</p>
+                                            <p className="mt-1 text-sm text-muted-foreground">
+                                                {selectedFile ? `${formatFileSize(selectedFile.size)} selected. Click to replace.` : 'MP4, MP3, WAV, MOV, MKV, AVI, and WebM up to 2GB.'}
+                                            </p>
+                                        </div>
+                                        <Badge variant="outline">Browse</Badge>
+                                    </div>
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        className="hidden"
+                                        accept="video/*,audio/*"
+                                        onChange={(event) => handleFileSelect(event.target.files?.[0] ?? null)}
+                                    />
                                 </button>
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="project-name">Project name</Label>
+                                    <Input
+                                        id="project-name"
+                                        value={projectName}
+                                        onChange={(event) => setProjectName(event.target.value)}
+                                        placeholder="Enter project name..."
+                                        required
+                                    />
+                                </div>
+
+                                <div className="space-y-3">
+                                    <Label>Project type</Label>
+                                    <div className="grid gap-3 sm:grid-cols-2">
+                                        {[
+                                            { value: 'subtitle' as const, title: 'AI Video Subtitle', body: 'Transcribe and manage subtitle tracks.', icon: Captions },
+                                            { value: 'caption' as const, title: 'AI Video Caption', body: 'Open templates, b-roll, music, SFX, and MP4 export.', icon: WandSparkles },
+                                        ].map((option) => {
+                                            const active = projectType === option.value;
+                                            return (
+                                                <button
+                                                    key={option.value}
+                                                    type="button"
+                                                    onClick={() => setProjectType(option.value)}
+                                                    className={cn('rounded-xl border p-4 text-left transition-colors', active ? 'border-primary bg-primary/5' : 'border-border bg-card hover:bg-muted')}
+                                                >
+                                                    <div className="flex items-start gap-3">
+                                                        <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-lg', active ? 'bg-primary text-primary-foreground' : 'bg-muted text-primary')}>
+                                                            <option.icon className="h-5 w-5" />
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-sm font-semibold">{option.title}</p>
+                                                            <p className="mt-1 text-xs leading-5 text-muted-foreground">{option.body}</p>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        variant="link"
+                                        className="h-auto p-0"
+                                        onClick={() => {
+                                            setShowCreateDialog(false);
+                                            navigate('/dashboard/long-to-shorts');
+                                        }}
+                                    >
+                                        <Scissors className="h-3.5 w-3.5" />
+                                        Need hook-led shorts or YouTube import? Open Long to Viral.
+                                    </Button>
+                                </div>
+
+                                {isSubmitting && (
+                                    <Card className="bg-muted/45">
+                                        <CardContent className="p-4">
+                                            <div className="mb-2 flex justify-between text-xs font-semibold text-muted-foreground">
+                                                <span>Uploading and preparing workspace</span>
+                                                <span>{uploadProgress}%</span>
+                                            </div>
+                                            <Progress value={uploadProgress} />
+                                        </CardContent>
+                                    </Card>
+                                )}
                             </div>
+
+                            <DialogFooter className="mt-auto border-t border-border bg-muted/35 p-6">
+                                <Button type="button" variant="outline" disabled={isSubmitting} onClick={() => setShowCreateDialog(false)}>
+                                    Cancel
+                                </Button>
+                                <Button type="submit" disabled={isSubmitting || !selectedFile}>
+                                    {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                                    {isSubmitting ? 'Processing' : 'Create Project'}
+                                </Button>
+                            </DialogFooter>
                         </form>
                     </div>
-                </div>
-            )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

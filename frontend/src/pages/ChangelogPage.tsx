@@ -9,15 +9,15 @@ const RELEASES = [
         tagColor: 'bg-[var(--color-success-light)] text-[var(--color-success)]',
         summary: 'Public beta release — the beginning.',
         changes: [
-            { type: 'feature', icon: Sparkles, text: 'Full transcription pipeline powered by Whisper large-v3' },
-            { type: 'feature', icon: Sparkles, text: 'Neural machine translation in 100+ languages via DeepL and GPT-4o' },
-            { type: 'feature', icon: Sparkles, text: 'Speaker diarization with pyannote.audio 3.1 (up to 32 speakers)' },
+            { type: 'feature', icon: Sparkles, text: 'Full transcription pipeline for accurate captions' },
+            { type: 'feature', icon: Sparkles, text: 'Neural machine translation in 100+ languages' },
+            { type: 'feature', icon: Sparkles, text: 'Speaker diarization for multi-speaker videos' },
             { type: 'feature', icon: Sparkles, text: 'Export to SRT, VTT, ASS/SSA, TTML, and plain text' },
             { type: 'feature', icon: Sparkles, text: 'Drag-and-drop file upload (up to 10 GB) and YouTube URL import' },
             { type: 'feature', icon: Sparkles, text: 'Side-by-side transcript editor with inline translation preview' },
             { type: 'feature', icon: Sparkles, text: 'Google Sign-In authentication' },
             { type: 'improvement', icon: Zap, text: 'Intelligent cue segmentation: 7s max, 42 chars/line, pause-aligned' },
-            { type: 'improvement', icon: Zap, text: 'Hallucination detection filter for AI-generated transcripts' },
+            { type: 'improvement', icon: Zap, text: 'Quality filter for AI-generated transcripts' },
         ],
     },
     {
@@ -27,7 +27,7 @@ const RELEASES = [
         tagColor: 'bg-[var(--color-warning-light)] text-[var(--color-warning)]',
         summary: 'Internal alpha release for testing.',
         changes: [
-            { type: 'feature', icon: Sparkles, text: 'Core transcription pipeline with Whisper integration' },
+            { type: 'feature', icon: Sparkles, text: 'Core transcription pipeline' },
             { type: 'feature', icon: Sparkles, text: 'Basic SRT export' },
             { type: 'fix', icon: Bug, text: 'Fixed audio extraction crash on certain MP4 containers' },
             { type: 'improvement', icon: Zap, text: 'Reduced average processing time by 40%' },
@@ -41,10 +41,10 @@ const RELEASES = [
         tagColor: '',
         summary: 'Infrastructure foundation and auth system.',
         changes: [
-            { type: 'feature', icon: Sparkles, text: 'Project scaffold: Vite + React 18 + TypeScript frontend' },
-            { type: 'feature', icon: Sparkles, text: 'FastAPI backend with PostgreSQL and Redis' },
-            { type: 'feature', icon: Sparkles, text: 'Firebase authentication integration' },
-            { type: 'improvement', icon: Wrench, text: 'CI/CD pipeline for automated deployments' },
+            { type: 'feature', icon: Sparkles, text: 'Production workspace foundation' },
+            { type: 'feature', icon: Sparkles, text: 'Secure account and project system' },
+            { type: 'feature', icon: Sparkles, text: 'Reliable sign-in and session handling' },
+            { type: 'improvement', icon: Wrench, text: 'Automated release workflow' },
         ],
     },
 ];
